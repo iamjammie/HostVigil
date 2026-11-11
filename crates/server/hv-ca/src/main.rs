@@ -61,7 +61,7 @@ impl Ca {
     }
 
     async fn issue(&self, csr_der: &[u8], host_id: &str) -> Result<Vec<u8>> {
-        let csr_der_owned: rcgen::CertificateSigningRequestDer<'static> = csr_der.to_vec().into();
+        let csr_der_owned = rustls_pki_types::CertificateSigningRequestDer::from(csr_der.to_vec());
         let mut csr = CertificateSigningRequestParams::from_der(&csr_der_owned)?;
         csr.params.distinguished_name = rcgen::DistinguishedName::new();
         csr.params
