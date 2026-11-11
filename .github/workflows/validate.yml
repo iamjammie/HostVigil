@@ -12,7 +12,7 @@ jobs:
     name: Rule packs, schemas, HUD
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -40,7 +40,7 @@ jobs:
     name: Rust workspace (fmt, clippy, tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with: { components: "rustfmt, clippy", targets: "x86_64-pc-windows-msvc" }
       - uses: Swatinem/rust-cache@v2
@@ -61,7 +61,7 @@ jobs:
       contents: read
       checks: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Resolve lockfile (not committed until the first vendored build)
         run: sudo apt-get install -y -qq protobuf-compiler && cargo generate-lockfile
