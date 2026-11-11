@@ -5,13 +5,13 @@
 
 use crate::{config::AgentConfig, modules::health::INVENTORY, supervisor::EventTx};
 use anyhow::Result;
-use serde::Serialize;
-use std::sync::Arc;
-use std::time::Duration;
 use hv_proto::{
     HostFacts, Hotfix, InventorySnapshot, ListeningPort, LocalAccount, ScheduledTask, Service,
     Software,
 };
+use serde::Serialize;
+use std::sync::Arc;
+use std::time::Duration;
 
 pub async fn run(cfg: Arc<AgentConfig>, _tx: EventTx) -> Result<()> {
     // Inventory is sent as its own AgentMessage (not an Event) because it is a

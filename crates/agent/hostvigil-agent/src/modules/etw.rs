@@ -5,8 +5,8 @@
 
 use crate::{config::AgentConfig, modules::health::ETW, supervisor::EventTx};
 use anyhow::Result;
-use std::sync::Arc;
 use hv_proto::event::Body;
+use std::sync::Arc;
 
 /// Provider GUIDs (stable across Windows 10/11/Server 2016-2025).
 pub const PROVIDERS: &[(&str, &str, u64)] = &[

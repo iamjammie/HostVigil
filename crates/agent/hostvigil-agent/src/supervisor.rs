@@ -4,10 +4,10 @@
 use crate::{config::AgentConfig, modules, transport};
 use anyhow::Result;
 use flume::{bounded, Sender};
+use hv_proto::event::Body;
 use std::sync::Arc;
 use tokio::task::JoinSet;
 use tracing::{error, info, warn};
-use hv_proto::event::Body;
 
 /// Any module emits bodies; the transport wraps them into `Event`s with
 /// host/boot/seq/timestamps so modules never need to know about sequencing.

@@ -5,9 +5,9 @@
 
 use anyhow::{Context, Result};
 use ed25519_dalek::VerifyingKey;
+use hv_common::{BundleKind, BundleManifest};
 use sqlx::PgPool;
 use std::{io::Read, path::Path};
-use hv_common::{BundleKind, BundleManifest};
 
 #[tokio::main]
 async fn main() -> Result<()> {

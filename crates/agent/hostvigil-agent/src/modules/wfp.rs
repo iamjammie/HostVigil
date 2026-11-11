@@ -7,10 +7,10 @@
 
 use crate::{config::AgentConfig, modules::health::WFP, supervisor::EventTx};
 use anyhow::Result;
+use hv_proto::{event::Body, network_flow::Direction, FirewallPolicy, NetworkFlow};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use hv_proto::{event::Body, network_flow::Direction, FirewallPolicy, NetworkFlow};
 
 /// Aggregation key: flows are rolled up for 10 s before emission so a chatty
 /// connection yields one event with byte counters instead of thousands.

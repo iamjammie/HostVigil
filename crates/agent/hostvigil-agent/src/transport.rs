@@ -5,15 +5,15 @@
 use crate::{config::AgentConfig, modules, ring::Ring};
 use anyhow::{Context, Result};
 use flume::Receiver;
+use hv_proto::{
+    agent_message, event, server_message, telemetry_client::TelemetryClient, AgentMessage, Event,
+    EventBatch, Heartbeat, Hello, ServerMessage,
+};
 use prost::Message;
 use std::{path::Path, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tracing::{info, warn};
-use hv_proto::{
-    agent_message, event, server_message, telemetry_client::TelemetryClient, AgentMessage, Event,
-    EventBatch, Heartbeat, Hello, ServerMessage,
-};
 
 pub async fn run(cfg: Arc<AgentConfig>, rx: Receiver<event::Body>) -> Result<()> {
     std::fs::create_dir_all(&cfg.data_dir)?;

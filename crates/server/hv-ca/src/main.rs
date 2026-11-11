@@ -4,16 +4,16 @@
 //! with 0600 permissions; HSM/PKCS#11 is a v1.x option.
 
 use anyhow::Result;
+use hv_proto::{
+    enrolment_server::{Enrolment, EnrolmentServer},
+    Config as AgentCfg, EnrolRequest, EnrolResponse, RenewRequest,
+};
 use rcgen::{
     BasicConstraints, Certificate, CertificateParams, CertificateSigningRequestParams, DnType,
     IsCa, KeyPair, KeyUsagePurpose,
 };
 use sqlx::PgPool;
 use tonic::{transport::Server, Request, Response, Status};
-use hv_proto::{
-    enrolment_server::{Enrolment, EnrolmentServer},
-    Config as AgentCfg, EnrolRequest, EnrolResponse, RenewRequest,
-};
 
 pub struct Ca {
     ca_cert: Certificate,

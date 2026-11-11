@@ -59,5 +59,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve lockfile (not committed until the first vendored build)
+        run: sudo apt-get install -y -qq protobuf-compiler && cargo generate-lockfile
       - uses: rustsec/audit-check@v2
         with: { token: "${{ secrets.GITHUB_TOKEN }}" }
