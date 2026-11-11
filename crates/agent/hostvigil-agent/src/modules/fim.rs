@@ -117,8 +117,50 @@ mod windows_impl {
     };
     use windows::Win32::System::IO::DeviceIoControl;
 
+    /// Raw volume handle. Only the journal thread touches it, so moving it is sound.
+    struct VolHandle(HANDLE);
+    unsafe impl Send for VolHandle {}
+
     pub async fn run(watches: Vec<FimWatch>, tx: EventTx) -> Result<()> {
-        let vol = unsafe {
+        // The USN reader is blocking (DeviceIoControl with a timeout); run it on its own
+        // thread and hand matches to tokio through a channel.
+        let (raw_tx, raw_rx) = flume::bounded::<(Kind, String, u64)>(10_000);
+        std::thread::Builder::new()
+            .name("hv-usn".into())
+            .spawn(move || {
+                if let Err(e) = journal_thread(watches, raw_tx) {
+                    tracing::error!(error = %e, "usn journal reader exited");
+                }
+            })?;
+        let mut last_hash = std::time::Instant::now();
+        while let Ok((kind, path, usn)) = raw_rx.recv_async().await {
+            let want_hash =
+                kind != Kind::Deleted && last_hash.elapsed() > Duration::from_millis(50);
+            let sha = if want_hash {
+                last_hash = std::time::Instant::now();
+                hash_file(&path).await
+            } else {
+                String::new()
+            };
+            FIM.emitted();
+            let _ = tx
+                .send_async(Body::File(FileChange {
+                    kind: kind as i32,
+                    path,
+                    sha256_after: sha,
+                    usn,
+                    ..Default::default()
+                }))
+                .await;
+        }
+        Ok(())
+    }
+
+    fn journal_thread(
+        watches: Vec<FimWatch>,
+        raw_tx: flume::Sender<(Kind, String, u64)>,
+    ) -> Result<()> {
+        let vol = VolHandle(unsafe {
             CreateFileW(
                 &HSTRING::from(r"\\.\C:"),
                 FILE_GENERIC_READ.0,
@@ -128,12 +170,12 @@ mod windows_impl {
                 FILE_FLAG_BACKUP_SEMANTICS,
                 HANDLE::default(),
             )?
-        };
+        });
         let mut jd = USN_JOURNAL_DATA_V0::default();
         let mut ret = 0u32;
         unsafe {
             DeviceIoControl(
-                vol,
+                vol.0,
                 FSCTL_QUERY_USN_JOURNAL,
                 None,
                 0,
@@ -145,7 +187,6 @@ mod windows_impl {
         };
         let mut next_usn = jd.NextUsn;
         let mut buf = vec![0u8; 64 * 1024];
-        let mut last_hash = std::time::Instant::now();
         loop {
             let rd = READ_USN_JOURNAL_DATA_V0 {
                 StartUsn: next_usn,
@@ -158,7 +199,7 @@ mod windows_impl {
             let mut got = 0u32;
             let ok = unsafe {
                 DeviceIoControl(
-                    vol,
+                    vol.0,
                     FSCTL_READ_USN_JOURNAL,
                     Some(&rd as *const _ as *const _),
                     std::mem::size_of::<READ_USN_JOURNAL_DATA_V0>() as u32,
@@ -169,7 +210,7 @@ mod windows_impl {
                 )
             };
             if ok.is_err() || got < 8 {
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                std::thread::sleep(Duration::from_millis(500));
                 continue;
             }
             next_usn = i64::from_le_bytes(buf[..8].try_into().unwrap());
@@ -192,25 +233,9 @@ mod windows_impl {
                 if let Some(path) = resolve_path(rec.ParentFileReferenceNumber, &name) {
                     if matches(&path, &watches) {
                         let kind = classify_kind(rec.Reason);
-                        let want_hash = kind != Kind::Deleted
-                            && watches.iter().any(|w| w.hash)
-                            && last_hash.elapsed() > Duration::from_millis(50);
-                        let sha = if want_hash {
-                            last_hash = std::time::Instant::now();
-                            hash_file(&path).await
-                        } else {
-                            String::new()
-                        };
-                        FIM.emitted();
-                        let _ = tx
-                            .send_async(Body::File(FileChange {
-                                kind: kind as i32,
-                                path,
-                                sha256_after: sha,
-                                usn: rec.Usn as u64,
-                                ..Default::default()
-                            }))
-                            .await;
+                        if raw_tx.send((kind, path, rec.Usn as u64)).is_err() {
+                            break;
+                        }
                     }
                 }
                 off += rec.RecordLength as usize;
@@ -218,7 +243,7 @@ mod windows_impl {
         }
         #[allow(unreachable_code)]
         {
-            let _ = unsafe { CloseHandle(vol) };
+            let _ = unsafe { CloseHandle(vol.0) };
             Ok(())
         }
     }

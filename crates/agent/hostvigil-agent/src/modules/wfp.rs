@@ -114,7 +114,10 @@ pub fn apply_policy(policy: &FirewallPolicy) -> Result<()> {
 mod windows_impl {
     use super::*;
     use ferrisetw::{
-        parser::Parser, provider::Provider, schema_locator::SchemaLocator, trace::UserTrace,
+        parser::Parser,
+        provider::Provider,
+        schema_locator::SchemaLocator,
+        trace::{TraceTrait, UserTrace},
         EventRecord,
     };
 
@@ -157,7 +160,8 @@ mod windows_impl {
         let (_t, handle) = UserTrace::new()
             .named("HostVigilNet".into())
             .enable(prov)
-            .start()?;
+            .start()
+            .map_err(|e| anyhow::anyhow!("etw trace start failed: {e:?}"))?;
         std::thread::spawn(move || {
             let _ = UserTrace::process_from_handle(handle);
         });

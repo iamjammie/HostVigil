@@ -64,7 +64,10 @@ async fn futures_idle() -> Result<()> {
 mod windows_impl {
     use super::*;
     use ferrisetw::{
-        parser::Parser, provider::Provider, schema_locator::SchemaLocator, trace::UserTrace,
+        parser::Parser,
+        provider::Provider,
+        schema_locator::SchemaLocator,
+        trace::{TraceTrait, UserTrace},
         EventRecord,
     };
     use hv_proto::{
@@ -95,7 +98,9 @@ mod windows_impl {
         for p in providers {
             trace = trace.enable(p);
         }
-        let (_trace, handle) = trace.start()?;
+        let (_trace, handle) = trace
+            .start()
+            .map_err(|e| anyhow::anyhow!("etw trace start failed: {e:?}"))?;
         std::thread::spawn(move || {
             let _ = UserTrace::process_from_handle(handle);
         });

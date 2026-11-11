@@ -53,6 +53,7 @@ windows = { version = "0.58", features = [
   "Win32_Security_WinTrust",
   "Win32_System_Registry",
   "Win32_System_SystemInformation",
+  "Win32_System_ProcessStatus",
 ] }
 
 [package.metadata.wix]
