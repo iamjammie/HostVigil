@@ -38,7 +38,7 @@ rustls = "0.23"
 rcgen = { version = "0.13", features = ["x509-parser", "pem"] }
 time = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-x509-parser = "0.16"
+x509-parser = "0.18"
 zstd = "0.13"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
