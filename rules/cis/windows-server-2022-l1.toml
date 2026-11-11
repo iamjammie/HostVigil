@@ -1,0 +1,57 @@
+# Subset of CIS Microsoft Windows Server 2022 Benchmark v2.0 Level 1 expressed as HostVigil checks.
+# key = registry/auditpol key collected by the agent baseline module; expected = compliant value.
+[[check]]
+id = "cis-18.3.3"
+title = "Configure SMB v1 server: Disabled"
+key = "smb1"
+expected = "0"
+severity = "high"
+remediation = "Set-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters SMB1 0; Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol -NoRestart"
+
+[[check]]
+id = "cis-18.9.65.3.9.4"
+title = "Require user authentication for remote connections by using NLA: Enabled"
+key = "rdp_nla"
+expected = "1"
+severity = "medium"
+remediation = "Set-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp' UserAuthentication 1"
+
+[[check]]
+id = "cis-18.3.7"
+title = "LSA Protection: Enabled"
+key = "lsa_ppl"
+expected = "1"
+severity = "high"
+remediation = "Set-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa RunAsPPL 1"
+
+[[check]]
+id = "cis-18.3.6"
+title = "WDigest Authentication: Disabled"
+key = "wdigest"
+expected = "0"
+severity = "high"
+remediation = "Set-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest UseLogonCredential 0"
+
+[[check]]
+id = "cis-9.1.1"
+title = "Windows Firewall Domain Profile: On"
+key = "fw_domain"
+expected = "1"
+severity = "high"
+remediation = "Set-NetFirewallProfile -Profile Domain -Enabled True"
+
+[[check]]
+id = "cis-18.9.100.1"
+title = "Turn on PowerShell Script Block Logging: Enabled"
+key = "ps_scriptblock"
+expected = "1"
+severity = "medium"
+remediation = "New-Item -Force HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging | Set-ItemProperty -Name EnableScriptBlockLogging -Value 1"
+
+[[check]]
+id = "cis-17.5.4"
+title = "Audit Logon: Success and Failure"
+key = "audit_logon"
+expected = "3"
+severity = "high"
+remediation = "auditpol /set /subcategory:Logon /success:enable /failure:enable"

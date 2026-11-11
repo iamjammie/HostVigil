@@ -1,0 +1,10 @@
+id: hv-0005
+title: Defender disabled via registry
+level: high
+tags: [attack.defense_evasion, attack.t1562.001]
+logsource: {category: registry_set, product: windows}
+detection:
+  selection:
+    TargetObject|contains: ['\Windows Defender\DisableAntiSpyware', '\Real-Time Protection\DisableRealtimeMonitoring']
+    Details: '1'
+  condition: selection

@@ -1,0 +1,48 @@
+# HostVigil offline bundle. All images are pre-pulled into the air-gapped registry
+# (see docs/OFFLINE-INSTALL.md). No container needs internet.
+name: hostvigil
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: hostvigil, POSTGRES_PASSWORD: ${PG_PASSWORD:-hostvigil}, POSTGRES_DB: hostvigil }
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U hostvigil"], interval: 10s, retries: 10 }
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    ulimits: { nofile: 262144 }
+    volumes: [chdata:/var/lib/clickhouse, ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro]
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://localhost:8123/ping"], interval: 10s, retries: 10 }
+  hv-ca:
+    image: hostvigil/server:${HV_VERSION:-0.1.0}
+    command: hv-ca
+    environment: { HV_POSTGRES_URL: "postgres://hostvigil:${PG_PASSWORD:-hostvigil}@postgres/hostvigil", RUST_LOG: info }
+    volumes: [vcdata:/var/lib/hostvigil]
+    ports: ["8444:8444"]
+    depends_on: { postgres: { condition: service_healthy } }
+  hv-ingest:
+    image: hostvigil/server:${HV_VERSION:-0.1.0}
+    command: hv-ingest
+    environment: { HV_POSTGRES_URL: "postgres://hostvigil:${PG_PASSWORD:-hostvigil}@postgres/hostvigil", HV_CLICKHOUSE_URL: http://clickhouse:8123, HV_TLS_CERT: /var/lib/hostvigil/ca/server.pem, HV_TLS_KEY: /var/lib/hostvigil/ca/server.key, HV_CA_CERT: /var/lib/hostvigil/ca/ca.pem, RUST_LOG: info }
+    volumes: [vcdata:/var/lib/hostvigil]
+    ports: ["8443:8443"]
+    depends_on: { postgres: { condition: service_healthy }, clickhouse: { condition: service_healthy }, hv-ca: { condition: service_started } }
+  hv-analytics:
+    image: hostvigil/server:${HV_VERSION:-0.1.0}
+    command: hv-analytics
+    environment: { HV_POSTGRES_URL: "postgres://hostvigil:${PG_PASSWORD:-hostvigil}@postgres/hostvigil", HV_CLICKHOUSE_URL: http://clickhouse:8123, HV_RULES_DIR: /etc/hostvigil/rules, RUST_LOG: info }
+    volumes: [vcdata:/var/lib/hostvigil, ../../rules:/etc/hostvigil/rules:ro]
+    depends_on: [hv-ingest]
+  hv-feeds:
+    image: hostvigil/server:${HV_VERSION:-0.1.0}
+    command: hv-feeds
+    environment: { HV_POSTGRES_URL: "postgres://hostvigil:${PG_PASSWORD:-hostvigil}@postgres/hostvigil", HV_FEED_PUBKEY: ${HV_FEED_PUBKEY}, HV_RULES_DIR: /etc/hostvigil/rules, RUST_LOG: info }
+    volumes: [vcdata:/var/lib/hostvigil, rules:/etc/hostvigil/rules]
+    depends_on: [postgres]
+  hv-api:
+    image: hostvigil/server:${HV_VERSION:-0.1.0}
+    command: hv-api
+    environment: { HV_POSTGRES_URL: "postgres://hostvigil:${PG_PASSWORD:-hostvigil}@postgres/hostvigil", HV_CLICKHOUSE_URL: http://clickhouse:8123, HV_JWT_SECRET: ${HV_JWT_SECRET}, HV_ADMIN_PASSWORD: ${HV_ADMIN_PASSWORD}, RUST_LOG: info }
+    volumes: [vcdata:/var/lib/hostvigil]
+    ports: ["8080:8080"]
+    depends_on: [hv-ingest]
+volumes: { pgdata: {}, chdata: {}, vcdata: {}, rules: {} }

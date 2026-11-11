@@ -1,0 +1,10 @@
+id: hv-0002
+title: Mshta spawning command interpreter
+level: high
+tags: [attack.defense_evasion, attack.t1218.005]
+logsource: {category: process_creation, product: windows}
+detection:
+  selection:
+    ParentImage|endswith: '\mshta.exe'
+    Image|endswith: ['\cmd.exe', '\powershell.exe', '\wscript.exe', '\cscript.exe']
+  condition: selection

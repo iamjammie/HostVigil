@@ -1,0 +1,17 @@
+# 10-host Windows lab for phase gates: 2 DC, 2 Web, 2 App, 1 DB, 3 workstations.
+# Requires Hyper-V or VirtualBox and the gusztavvargadr/windows-* boxes mirrored offline.
+Vagrant.configure("2") do |config|
+  { "dc-01" => "windows-server-2022-standard", "dc-02" => "windows-server-2019-standard",
+    "web-01" => "windows-server-2022-standard", "web-02" => "windows-server-2022-standard",
+    "app-01" => "windows-server-2019-standard", "app-02" => "windows-server-2016-standard",
+    "sql-01" => "windows-server-2022-standard",
+    "ws-01" => "windows-11", "ws-02" => "windows-11", "ws-03" => "windows-10" }.each do |name, box|
+    config.vm.define name do |m|
+      m.vm.box = "gusztavvargadr/#{box}"
+      m.vm.hostname = name
+      m.vm.network "private_network", ip: "10.50.0.#{10 + name.hash % 200}"
+      m.vm.provider "hyperv" do |h| h.memory = name.start_with?("ws") ? 4096 : 6144; h.cpus = 2 end
+      m.vm.provision "shell", path: "provision-agent.ps1", args: ["-Server", "https://10.50.0.2:8443", "-Token", ENV.fetch("HV_TOKEN", "")]
+    end
+  end
+end

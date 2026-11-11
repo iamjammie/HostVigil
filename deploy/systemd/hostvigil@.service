@@ -1,0 +1,19 @@
+[Unit]
+Description=HostVigil %i
+After=network-online.target postgresql.service clickhouse-server.service
+Wants=network-online.target
+
+[Service]
+User=hostvigil
+EnvironmentFile=/etc/hostvigil/env
+ExecStart=/usr/local/bin/%i
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/hostvigil
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

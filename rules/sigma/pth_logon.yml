@@ -1,0 +1,10 @@
+id: hv-0007
+title: Pass-the-hash style NTLM network logon
+level: critical
+tags: [attack.lateral_movement, attack.t1550.002]
+logsource: {category: logon, product: windows}
+detection:
+  selection:
+    LogonType: '9'
+    AuthPackage: 'NTLM'
+  condition: selection

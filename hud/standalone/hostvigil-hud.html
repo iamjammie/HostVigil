@@ -1,0 +1,558 @@
+<title>HostVigil HUD</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: fixed left rail + top filter bar + scrolling canvas + right drill-down drawer. Dark mission-control, single theme by design. */
+:root{
+  color-scheme:dark;
+  --bg:#0B0F17; --bg2:#0F1522; --panel:rgba(17,24,39,.72); --panel2:rgba(22,30,48,.85);
+  --line:rgba(148,163,184,.14); --line2:rgba(34,211,238,.28);
+  --fg:#E6EDF7; --fg2:#9AA8BD; --fg3:#64748B;
+  --accent:#22D3EE; --accent2:#0EA5E9; --accent-dim:rgba(34,211,238,.14);
+  --good:#10B981; --warn:#F59E0B; --serious:#F97316; --crit:#F43F5E;
+  --c1:#0891B2; --c2:#A855F7; --c3:#D97706; --c4:#EC4899; --c5:#059669; --c6:#6366F1;
+  --font:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r:10px; --rail:64px; --top:56px; --drawer:420px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font);font-size:13px;line-height:1.45;overflow:hidden;
+  background-image:radial-gradient(1200px 600px at 10% -10%,rgba(14,165,233,.10),transparent 60%),radial-gradient(900px 500px at 100% 110%,rgba(168,85,247,.08),transparent 60%);}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:var(--accent)}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* shell */
+#app{display:grid;grid-template-columns:var(--rail) 1fr;grid-template-rows:var(--top) 1fr;height:100%;}
+#rail{grid-row:1/3;background:var(--bg2);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding-block:10px;gap:4px;padding-left:env(safe-area-inset-left,0px)}
+#rail .logo{width:40px;height:40px;margin-bottom:10px}
+#rail button{width:48px;height:48px;border:0;background:transparent;border-radius:var(--r);color:var(--fg3);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:9px;letter-spacing:.3px;position:relative}
+#rail button svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+#rail button:hover{color:var(--fg);background:rgba(255,255,255,.04)}
+#rail button.active{color:var(--accent);background:var(--accent-dim)}
+#rail button.active::before{content:"";position:absolute;left:-8px;top:12px;bottom:12px;width:3px;border-radius:3px;background:var(--accent);box-shadow:0 0 12px var(--accent)}
+#rail .badge{position:absolute;top:6px;right:6px;min-width:16px;height:16px;border-radius:8px;background:var(--crit);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding-inline:4px}
+#rail .spacer{flex:1}
+
+#top{display:flex;align-items:center;gap:8px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);background:rgba(11,15,23,.7);backdrop-filter:blur(12px);overflow-x:auto;scrollbar-width:none}
+#top::-webkit-scrollbar{display:none}
+#top h1{font-size:14px;font-weight:600;margin:0;white-space:nowrap;letter-spacing:.2px}
+#top h1 span{color:var(--fg3);font-weight:500}
+.sep{width:1px;height:22px;background:var(--line);flex:none}
+.chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg2);white-space:nowrap;font-size:12px}
+.chip.on{border-color:var(--line2);color:var(--fg);background:var(--accent-dim)}
+.chip .x{opacity:.6;font-size:14px;line-height:1;padding-left:2px}
+.chip .x:hover{opacity:1;color:var(--crit)}
+.chip select{background:transparent;border:0;color:var(--fg);outline:0;padding:0;max-width:140px}
+.chip input{background:transparent;border:0;outline:0;width:170px;color:var(--fg)}
+.chip input::placeholder{color:var(--fg3)}
+.chip.ghost{border-style:dashed;color:var(--fg3)}
+.kbd{font-family:var(--mono);font-size:10px;border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--fg3)}
+.live{display:inline-flex;align-items:center;gap:6px;color:var(--fg2);font-size:11px;white-space:nowrap;margin-left:auto}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 10px var(--good);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+#main{overflow:auto;padding-block:16px;padding-left:16px;padding-right:max(16px,env(safe-area-inset-right,0px));position:relative}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(12,minmax(0,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;min-width:0;position:relative;backdrop-filter:blur(8px)}
+.card.glow{border-color:var(--line2);box-shadow:0 0 0 1px rgba(34,211,238,.05),0 10px 40px -20px rgba(34,211,238,.35)}
+.card h3{margin:0 0 10px;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--fg3);display:flex;align-items:center;gap:8px}
+.card h3 .right{margin-left:auto;font-weight:500;letter-spacing:0;text-transform:none;color:var(--fg3)}
+.card h3 button{background:transparent;border:1px solid var(--line);border-radius:6px;color:var(--fg2);font-size:11px;padding:2px 8px}
+.card h3 button:hover{border-color:var(--line2);color:var(--fg)}
+.s3{grid-column:span 3}.s5{grid-column:span 5}.s7{grid-column:span 7}.s4{grid-column:span 4}.s6{grid-column:span 6}.s8{grid-column:span 8}.s12{grid-column:span 12}.s2{grid-column:span 2}
+@media (max-width:1100px){.s3,.s2,.s5,.s7{grid-column:span 6}.s4{grid-column:span 6}.s8{grid-column:span 12}}
+@media (max-width:700px){.s3,.s2,.s4,.s5,.s6,.s7{grid-column:span 12}#app{grid-template-columns:1fr}#rail{grid-row:auto;position:fixed;bottom:0;left:0;right:0;flex-direction:row;justify-content:space-around;padding-block:4px;z-index:20;border-right:0;border-top:1px solid var(--line);padding-bottom:calc(4px + env(safe-area-inset-bottom,0px))}#rail .logo,#rail .spacer{display:none}#rail button{width:44px;height:44px}#rail button.active::before{display:none}#main{padding-bottom:76px;padding-left:max(16px,env(safe-area-inset-left,0px))}#drawer{width:100vw}}
+
+/* KPI */
+.kpi{display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:transform .15s}
+.kpi:hover{transform:translateY(-1px);border-color:var(--line2)}
+.kpi .v{font-size:28px;font-weight:700;letter-spacing:-.5px;line-height:1.1}
+.kpi .l{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--fg3)}
+.kpi .d{font-size:11px;color:var(--fg2);display:flex;align-items:center;gap:6px}
+.kpi .d b{font-weight:600}
+.kpi svg.spark{position:absolute;right:12px;top:30px;width:90px;height:34px;opacity:.9}
+.kpi .l{padding-right:96px}
+.up{color:var(--crit)}.down{color:var(--good)}
+
+/* severity */
+.sev{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.4px}
+.sev::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.sev.critical{color:var(--crit);background:rgba(244,63,94,.12)}.sev.high{color:var(--serious);background:rgba(249,115,22,.12)}.sev.medium{color:var(--warn);background:rgba(245,158,11,.12)}.sev.low{color:var(--good);background:rgba(16,185,129,.12)}.sev.info{color:var(--fg2);background:rgba(148,163,184,.12)}
+.tier{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--fg2)}
+.tier i{width:8px;height:8px;border-radius:2px}
+.pill{display:inline-block;padding:1px 7px;border-radius:5px;border:1px solid var(--line);font-size:11px;color:var(--fg2)}
+.pill.ok{color:var(--good);border-color:rgba(16,185,129,.4)}.pill.bad{color:var(--crit);border-color:rgba(244,63,94,.4)}.pill.warnp{color:var(--warn);border-color:rgba(245,158,11,.4)}
+
+/* tables */
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{position:sticky;top:0;background:var(--bg2);text-align:left;font-weight:600;color:var(--fg3);font-size:10px;letter-spacing:.8px;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none;white-space:nowrap}
+.tbl th.sorted{color:var(--accent)}
+.tbl td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+.tbl tr.row{cursor:pointer}
+.tbl tr.row:hover td{background:rgba(34,211,238,.05)}
+.tbl tr.sel td{background:var(--accent-dim)}
+.twrap{overflow:auto;max-height:520px;border-radius:8px;border:1px solid var(--line)}
+.bar{height:6px;border-radius:3px;background:rgba(148,163,184,.15);overflow:hidden;min-width:60px}
+.bar i{display:block;height:100%;border-radius:3px}
+.muted{color:var(--fg3)}
+.empty{color:var(--fg3);padding:30px;text-align:center}
+.count{color:var(--fg3);font-weight:500}
+
+/* charts */
+.chart{width:100%;position:relative}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.chart text{font-family:var(--font);fill:var(--fg3);font-size:10.5px}
+.chart .grid line{stroke:rgba(148,163,184,.1)}
+.chart .axis line,.chart .axis path{stroke:rgba(148,163,184,.25)}
+.tip{position:fixed;pointer-events:none;background:#0F1522;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--fg);z-index:50;box-shadow:0 10px 30px rgba(0,0,0,.5);max-width:260px;display:none}
+.tip b{color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--fg2);margin-top:6px}
+.legend span{display:inline-flex;align-items:center;gap:5px}.legend i{width:10px;height:3px;border-radius:2px}
+.heat{display:grid;gap:3px}
+.heat .cell{aspect-ratio:1;border-radius:3px;cursor:pointer;position:relative;transition:transform .1s}
+.heat .cell:hover{transform:scale(1.15);z-index:2;outline:1px solid var(--fg)}
+.hgrid{display:grid;grid-template-columns:120px 1fr;gap:4px 10px;align-items:center;font-size:11px}
+.hgrid .row{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:3px}
+.hgrid .row .cell{height:22px;border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;font-family:var(--mono)}
+.hgrid .row .cell:hover{outline:1px solid var(--fg)}
+
+/* drawer */
+#drawer{position:fixed;top:env(safe-area-inset-top,0px);right:0;bottom:0;width:var(--drawer);max-width:100vw;background:rgba(15,21,34,.96);border-left:1px solid var(--line2);transform:translateX(100%);transition:transform .25s ease;z-index:30;display:flex;flex-direction:column;backdrop-filter:blur(14px);box-shadow:-20px 0 60px rgba(0,0,0,.5)}
+#drawer.open{transform:none}
+#drawer header{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:flex-start}
+#drawer header h2{margin:0;font-size:16px;font-weight:600}
+#drawer header .sub{color:var(--fg3);font-size:11px;margin-top:2px;font-family:var(--mono)}
+#drawer header button{margin-left:auto;background:transparent;border:1px solid var(--line);border-radius:6px;color:var(--fg2);width:28px;height:28px}
+#drawer .tabs{display:flex;gap:2px;padding:8px 12px 0;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+#drawer .tabs button{background:transparent;border:0;border-bottom:2px solid transparent;color:var(--fg3);padding:8px 10px;font-size:12px;white-space:nowrap}
+#drawer .tabs button.active{color:var(--accent);border-bottom-color:var(--accent)}
+#drawer .body{overflow:auto;padding:14px 16px 24px;flex:1;display:flex;flex-direction:column;gap:14px}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:6px 10px;font-size:12px}
+.kv dt{color:var(--fg3)}.kv dd{margin:0;font-family:var(--mono);font-size:11.5px;overflow-wrap:anywhere}
+.sec h4{margin:0 0 8px;font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--fg3)}
+.tree{font-family:var(--mono);font-size:11px;line-height:1.7}
+.tree .n{display:flex;gap:6px;align-items:center;cursor:pointer;border-radius:4px;padding:0 4px}
+.tree .n:hover{background:rgba(255,255,255,.04)}
+.tree .n.sus{color:var(--serious)}
+.tree .pid{color:var(--fg3)}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 12px;color:var(--fg);font-size:12px;display:inline-flex;gap:6px;align-items:center}
+.btn:hover{border-color:var(--line2)}
+.btn.primary{background:linear-gradient(135deg,rgba(34,211,238,.25),rgba(14,165,233,.25));border-color:var(--line2);color:#fff}
+.btn.danger{border-color:rgba(244,63,94,.4);color:var(--crit)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:#0F1522;border:1px solid var(--line2);color:var(--fg);padding:10px 16px;border-radius:10px;font-size:12px;opacity:0;transition:.25s;z-index:60;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%)}
+
+/* palette */
+#pal{position:fixed;inset:0;background:rgba(5,8,14,.6);backdrop-filter:blur(4px);display:none;align-items:flex-start;justify-content:center;padding-top:12vh;z-index:70}
+#pal.open{display:flex}
+#pal .box{width:min(640px,92vw);background:#0F1522;border:1px solid var(--line2);border-radius:14px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+#pal input{width:100%;background:transparent;border:0;outline:0;padding:16px 18px;font-size:15px;border-bottom:1px solid var(--line)}
+#pal .list{max-height:50vh;overflow:auto}
+#pal .it{padding:10px 18px;display:flex;gap:10px;align-items:center;cursor:pointer;font-size:13px}
+#pal .it.active,#pal .it:hover{background:var(--accent-dim)}
+#pal .it .k{color:var(--fg3);font-size:11px;margin-left:auto;font-family:var(--mono)}
+
+/* force map */
+#map{width:100%;height:560px;border-radius:8px;background:radial-gradient(600px 400px at 50% 50%,rgba(14,165,233,.06),transparent 70%);cursor:grab;display:block}
+.maplegend{position:absolute;top:50px;left:24px;display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--fg2);background:rgba(11,15,23,.6);padding:8px 10px;border-radius:8px;border:1px solid var(--line)}
+.mapctl{position:absolute;top:50px;right:24px;display:flex;gap:6px}
+.radar text{font-size:10px}
+.matrix{display:grid;gap:3px;font-size:10.5px}
+.matrix .c{height:30px;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:var(--mono)}
+.matrix .h{color:var(--fg3);display:flex;align-items:center;justify-content:center;font-size:10px;text-align:center}
+.gauge{display:flex;align-items:center;gap:14px}
+.gauge svg{width:120px;height:120px}
+.timeline{position:relative;padding-left:14px;border-left:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+.timeline .ev{position:relative;font-size:12px}
+.timeline .ev::before{content:"";position:absolute;left:-18px;top:5px;width:8px;height:8px;border-radius:50%;background:var(--fg3)}
+.timeline .ev.critical::before{background:var(--crit);box-shadow:0 0 8px var(--crit)}.timeline .ev.high::before{background:var(--serious)}.timeline .ev.medium::before{background:var(--warn)}
+.timeline .t{color:var(--fg3);font-family:var(--mono);font-size:10.5px}
+.queue{display:flex;flex-direction:column;gap:8px}
+.qitem{display:grid;grid-template-columns:1fr auto;gap:8px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);align-items:center}
+.qitem .p{font-family:var(--mono);font-size:11px;color:var(--fg2);overflow-wrap:anywhere}
+.qitem .a{display:flex;gap:6px}
+.qitem .a button{width:30px;height:30px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--fg2)}
+.qitem .a button:hover{color:var(--fg);border-color:var(--line2)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div id="app">
+  <nav id="rail" aria-label="Sections">
+    <svg class="logo" viewBox="0 0 160 160" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#67E8F9"/><stop offset="1" stop-color="#0EA5E9"/></linearGradient></defs><g transform="translate(80 80)"><path d="M0,-62 L54,-31 L54,31 L0,62 L-54,31 L-54,-31 Z" fill="none" stroke="url(#lg)" stroke-width="5" stroke-linejoin="round"/><circle r="30" fill="none" stroke="#22D3EE" stroke-width="4" stroke-dasharray="120 70" stroke-linecap="round" transform="rotate(-30)"/><path d="M-22,0 C-14,-14 14,-14 22,0 C14,14 -14,14 -22,0 Z" fill="none" stroke="#E0FBFF" stroke-width="4"/><circle r="8" fill="#22D3EE"/><circle r="3.5" fill="#0B0F17"/></g></svg>
+  </nav>
+  <header id="top"></header>
+  <main id="main"></main>
+</div>
+<aside id="drawer" aria-label="Details"></aside>
+<div id="pal" role="dialog" aria-label="Command palette"><div class="box"><input id="palq" placeholder="Jump to a host, CVE, hash, view or action…" autocomplete="off"><div class="list" id="pallist"></div></div></div>
+<div class="tip" id="tip"></div>
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+/* ====================== seeded demo data (replace with /api calls) ====================== */
+const DEMO_NOTE="Demo data generated in-browser. Wire to hv-api for live telemetry.";
+let seed=1337; const rnd=()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+const pick=a=>a[Math.floor(rnd()*a.length)], ri=(a,b)=>a+Math.floor(rnd()*(b-a+1));
+const OUS=["HQ-Servers","HQ-Workstations","DC-East","DC-West","Branch-North","Branch-South"];
+const TIERS=["Web","App","DB","DC","Workstation","Infra"]; const TIERC={Web:"var(--c1)",App:"var(--c2)",DB:"var(--c3)",DC:"var(--c4)",Workstation:"var(--c5)",Infra:"var(--c6)"};
+const OS=["Windows Server 2022","Windows Server 2019","Windows Server 2016","Windows Server 2025","Windows 11 24H2","Windows 11 23H2","Windows 10 22H2"];
+const CRIT=["Critical","High","Medium","Low"]; const SEVS=["critical","high","medium","low","info"];
+const CVES=[["CVE-2026-21012","Windows Kernel EoP",9.8,true],["CVE-2026-20521","SMBv3 RCE",9.1,true],["CVE-2025-49114","Print Spooler EoP",7.8,true],["CVE-2026-23344","OpenSSL 3.x DoS",7.5,false],["CVE-2025-53770","SharePoint ToolShell RCE",9.8,true],["CVE-2026-20104","RDP Gateway RCE",8.8,false],["CVE-2025-29824","CLFS driver EoP",7.8,true],["CVE-2026-24871","7-Zip path traversal",7.0,false],["CVE-2026-22233","Chrome V8 type confusion",8.8,true],["CVE-2025-21298","OLE RCE",9.8,false],["CVE-2026-20433","Exchange SSRF",8.1,true],["CVE-2026-25011","Java 17 deserialization",7.5,false],["CVE-2025-24993","NTFS heap overflow",7.8,true],["CVE-2026-22412","SQL Server EoP",8.8,false],["CVE-2026-21548","Veeam Backup RCE",9.9,false],["CVE-2025-33053","WebDAV RCE",8.8,true],["CVE-2026-20998","Netlogon EoP",9.0,false],["CVE-2026-24210","PowerShell AMSI bypass",6.5,false]];
+const SOFT=["7-Zip 23.01","Google Chrome 130.0","Java 17.0.9","OpenSSL 3.1.4","Veeam Backup 12.1","SQL Server 2019 CU25","IIS 10","Notepad++ 8.6","Python 3.11.6","Adobe Reader 24.002","Microsoft Edge 130","VMware Tools 12.3","Zoom 6.1","Node.js 20.11","Git 2.43","WinSCP 6.1","PuTTY 0.80","TeamViewer 15.5"];
+const PROCS=["svchost.exe","lsass.exe","w3wp.exe","sqlservr.exe","explorer.exe","powershell.exe","chrome.exe","msedge.exe","outlook.exe","java.exe","winlogon.exe","services.exe","spoolsv.exe","rundll32.exe","wmiprvse.exe","mshta.exe","certutil.exe","cmd.exe"];
+const ATTACK=[["TA0001","Initial Access"],["TA0002","Execution"],["TA0003","Persistence"],["TA0004","Priv Esc"],["TA0005","Defense Evasion"],["TA0006","Cred Access"],["TA0007","Discovery"],["TA0008","Lateral Mvmt"],["TA0009","Collection"],["TA0010","Exfiltration"],["TA0011","C2"],["TA0040","Impact"]];
+const RULES=[["Suspicious PowerShell EncodedCommand","high","TA0002"],["LSASS memory access","critical","TA0006"],["Scheduled task created by script host","medium","TA0003"],["Mshta spawning cmd","high","TA0005"],["Certutil download","high","TA0011"],["New local admin added","high","TA0003"],["Pass-the-hash logon pattern","critical","TA0008"],["Unsigned binary in Temp executed","medium","TA0002"],["Mass file rename in share","critical","TA0040"],["Registry Run key modified","medium","TA0003"],["SMB admin share access burst","high","TA0008"],["WMI remote process creation","high","TA0008"],["Disabled Defender via registry","high","TA0005"],["Kerberoasting ticket request","medium","TA0006"],["Outbound to rare port 4444","high","TA0011"],["Drift: audit policy weakened","medium","TA0005"],["FIM: hosts file modified","medium","TA0005"],["Allowlist violation: unknown publisher","low","TA0002"]];
+const NOW=Date.now(), DAY=864e5, HOUR=36e5;
+const hosts=[]; const names={Web:"web",App:"app",DB:"sql",DC:"dc",Workstation:"ws",Infra:"inf"};
+for(let i=0;i<124;i++){
+  const tier=rnd()<.42?"Workstation":pick(TIERS.filter(t=>t!=="Workstation")); const ou=tier==="Workstation"?pick(["HQ-Workstations","Branch-North","Branch-South"]):pick(["HQ-Servers","DC-East","DC-West"]);
+  const os=tier==="Workstation"?pick(OS.slice(4)):pick(OS.slice(0,4));
+  const crit=tier==="DC"||tier==="DB"?pick(["Critical","Critical","High"]):tier==="Workstation"?pick(["Low","Medium","Low"]):pick(["High","Medium"]);
+  const posture=Math.max(31,Math.min(99,Math.round(72+(rnd()-.5)*40+(os.includes("2016")||os.includes("10 ")?-12:0))));
+  const soft=Array.from({length:ri(4,9)},()=>pick(SOFT)).filter((v,j,a)=>a.indexOf(v)===j);
+  const nv=Math.max(0,Math.round((100-posture)/9+(rnd()-.5)*4)); const vulns=Array.from({length:nv},()=>ri(0,CVES.length-1)).filter((v,j,a)=>a.indexOf(v)===j);
+  const agentOk=rnd()>.06, agentVer=rnd()>.2?"0.4.2":rnd()>.5?"0.4.1":"0.3.9";
+  hosts.push({id:`${names[tier]}-${String(i+1).padStart(3,"0")}`,ip:`10.${ri(10,60)}.${ri(1,254)}.${ri(2,250)}`,tier,ou,os,crit,posture,soft,vulns,agentOk,agentVer,lastSeen:NOW-(agentOk?ri(5,300)*1e3:ri(2,40)*HOUR),bitlocker:rnd()>.2,tpm:rnd()>.1,localAdmins:ri(1,tier==="Workstation"?4:2),listening:Array.from({length:ri(2,7)},()=>pick([135,139,445,3389,80,443,1433,5985,8080,53,88,389,636,5986])).filter((v,j,a)=>a.indexOf(v)===j),drift:ri(0,posture<60?9:3),allowMode:rnd()>.35?"Enforce":"Audit",cpu:+(rnd()*1.8).toFixed(1),mem:ri(60,150)});
+}
+const hostById=Object.fromEntries(hosts.map(h=>[h.id,h]));
+// flows
+const flows=[]; const srvByTier=t=>hosts.filter(h=>h.tier===t);
+const link=(a,b,proc,port)=>flows.push({src:a.id,dst:b.id,proc,port,bytes:ri(2e5,9e7),count:ri(10,4000)});
+for(const w of srvByTier("Web")){for(const a of srvByTier("App").slice(0,ri(1,3)))link(w,a,"w3wp.exe",8080);link(w,pick(srvByTier("DC")),"lsass.exe",88)}
+for(const a of srvByTier("App")){for(const d of srvByTier("DB").slice(0,ri(1,2)))link(a,d,"java.exe",1433);link(a,pick(srvByTier("DC")),"lsass.exe",389)}
+for(const ws of srvByTier("Workstation")){link(ws,pick(srvByTier("DC")),"lsass.exe",88);if(rnd()<.6)link(ws,pick(srvByTier("Web")),"chrome.exe",443);if(rnd()<.3)link(ws,pick(srvByTier("Infra")),"outlook.exe",443);if(rnd()<.05)link(ws,pick(srvByTier("DB")),"powershell.exe",1433)}
+for(const i of srvByTier("Infra")){link(i,pick(srvByTier("DC")),"svchost.exe",389);if(rnd()<.5)link(i,pick(srvByTier("DB")),"sqlservr.exe",1433)}
+for(const d of srvByTier("DC"))for(const d2 of srvByTier("DC"))if(d!==d2&&rnd()<.6)link(d,d2,"lsass.exe",445);
+const suspiciousFlows=new Set(flows.filter(f=>f.proc==="powershell.exe"||(f.port===1433&&hostById[f.src].tier==="Workstation")).map(f=>f.src+">"+f.dst));
+// alerts (14 days)
+const alerts=[]; for(let i=0;i<340;i++){const r=pick(RULES);const h=pick(hosts);const age=Math.pow(rnd(),1.6)*14*DAY;alerts.push({id:"AL-"+String(10000+i),rule:r[0],sev:r[1],tactic:r[2],host:h.id,ts:NOW-age,proc:pick(PROCS),user:pick(["SYSTEM","svc_backup","j.doe","a.khan","m.rossi","NETWORK SERVICE","admin.local"]),status:rnd()<.72?"open":"ack"})}
+alerts.sort((a,b)=>b.ts-a.ts);
+// FIM changes
+const PATHS=["C:\\Windows\\System32\\drivers\\etc\\hosts","C:\\Windows\\System32\\config\\SAM","C:\\inetpub\\wwwroot\\web.config","C:\\Program Files\\App\\settings.json","C:\\Windows\\Tasks\\backup.job","C:\\Users\\Public\\run.ps1","C:\\Windows\\System32\\Tasks\\Updater","C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\sync.lnk","C:\\Windows\\SysWOW64\\certutil.exe","C:\\Program Files\\SQL\\Binn\\sqlservr.exe"];
+const fim=[]; for(let i=0;i<160;i++){const h=pick(hosts);const p=pick(PATHS);const kind=pick(["modified","modified","created","deleted","acl-changed","renamed"]);const cls=p.includes("hosts")||p.includes("SAM")||p.includes("Startup")||p.includes("run.ps1")?"suspicious":rnd()<.3?"config":"patch";fim.push({ts:NOW-Math.pow(rnd(),1.4)*14*DAY,host:h.id,path:p,kind,cls,proc:pick(PROCS),user:pick(["SYSTEM","TrustedInstaller","j.doe","svc_deploy","admin.local"]),hash:[...Array(16)].map(()=>"0123456789abcdef"[ri(0,15)]).join("")})}
+fim.sort((a,b)=>b.ts-a.ts);
+// allowlist queue
+const PUBS=["Microsoft Corporation","Google LLC","Igor Pavlov","Oracle America","Veeam Software","Unknown","Unsigned","Notepad++","Python Software Foundation","Zoom Video Communications"];
+const queue=Array.from({length:28},(_,i)=>({id:"AL"+i,host:pick(hosts).id,path:pick(["C:\\Users\\j.doe\\Downloads\\setup.exe","C:\\Temp\\agent_update.exe","C:\\Users\\Public\\tool.exe","C:\\Program Files\\7-Zip\\7z.exe","C:\\Windows\\Temp\\x.dll","C:\\Users\\a.khan\\AppData\\Local\\Temp\\n.exe","C:\\Tools\\procexp64.exe","C:\\Program Files\\Python311\\python.exe"]),pub:pick(PUBS),hash:[...Array(12)].map(()=>"0123456789abcdef"[ri(0,15)]).join(""),seen:ri(1,40),first:NOW-ri(1,72)*HOUR}));
+// drift findings
+const DRIFT=["Audit policy: Logon/Logoff success auditing disabled","Firewall domain profile turned off","SMBv1 client enabled","LAPS not applied","RDP NLA disabled","Guest account enabled","PowerShell script block logging off","LSA protection (RunAsPPL) missing","Unquoted service path","WDigest UseLogonCredential = 1"];
+/* ====================== data integrity guards ======================
+   Same idea as TTP-Nexus build/harness.js: the dataset must satisfy a set of
+   invariants before anything renders. Runs on the demo data at boot and on
+   every API payload once the HUD is wired to hv-api. Failures go to
+   console.error (picked up by hud/test/check_hud.py in CI) and to a banner. */
+const SHA_RE=/^[0-9a-f]{12,64}$/, HOST_RE=/^[A-Za-z0-9._-]{1,128}$/, IP_RE=/^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-f:]+$/i;
+const SEV_SET=new Set(SEVS), TIER_SET=new Set(TIERS), OU_SET=new Set(OUS);
+function checkInvariants(){
+  const fail=[]; const t=(cond,msg)=>{if(!cond)fail.push(msg)};
+  const ids=new Set(hosts.map(h=>h.id)); t(ids.size===hosts.length,"host ids must be unique");
+  for(const h of hosts){ t(HOST_RE.test(h.id),`bad host id ${h.id}`); t(IP_RE.test(h.ip),`bad ip ${h.ip} on ${h.id}`); t(TIER_SET.has(h.tier),`unknown tier ${h.tier}`); t(OU_SET.has(h.ou),`unknown OU ${h.ou}`); t(h.posture>=0&&h.posture<=100,`posture out of range on ${h.id}`); t(h.vulns.every(v=>v>=0&&v<CVES.length),`vuln index out of range on ${h.id}`); t(h.listening.every(p=>p>0&&p<65536),`bad port on ${h.id}`); }
+  for(const f of flows){ t(ids.has(f.src)&&ids.has(f.dst),`flow references unknown host ${f.src}>${f.dst}`); t(f.port>0&&f.port<65536,`bad flow port ${f.port}`); t(f.bytes>=0&&f.count>=0,"negative flow counters"); }
+  for(const a of alerts){ t(ids.has(a.host),`alert ${a.id} on unknown host`); t(SEV_SET.has(a.sev),`alert ${a.id} bad severity`); t(ATTACK.some(x=>x[0]===a.tactic),`alert ${a.id} unknown tactic ${a.tactic}`); t(a.ts<=NOW&&a.ts>NOW-30*DAY,`alert ${a.id} timestamp out of window`); }
+  for(const f of fim){ t(ids.has(f.host),"fim change on unknown host"); t(SHA_RE.test(f.hash),`bad fim hash ${f.hash}`); t(["suspicious","config","patch"].includes(f.cls),"bad fim class"); }
+  for(const q of queue){ t(ids.has(q.host),"queue item on unknown host"); t(SHA_RE.test(q.hash),"bad queue hash"); }
+  for(const c of CVES){ t(/^CVE-\d{4}-\d{4,}$/.test(c[0]),`bad CVE id ${c[0]}`); t(c[2]>=0&&c[2]<=10,`CVSS out of range ${c[0]}`); }
+  t(RULES.every(r=>SEV_SET.has(r[1])&&ATTACK.some(x=>x[0]===r[2])),"rule table inconsistent");
+  if(fail.length){ console.error("HostVigil data integrity:",fail.slice(0,20)); const b=document.createElement("div"); b.style.cssText="position:fixed;top:0;left:0;right:0;z-index:99;background:var(--crit);color:#fff;padding:6px 12px;font-size:12px"; b.textContent=`Data integrity check failed: ${fail.length} violation(s). See console.`; document.body.appendChild(b); }
+  else console.info(`HostVigil data integrity: ${hosts.length} hosts, ${flows.length} flows, ${alerts.length} alerts, ${fim.length} file changes verified`);
+  return fail;
+}
+/* Guard for live API payloads: drop rows that fail the shape, never render them. */
+function guardRows(rows,shape){ if(!Array.isArray(rows))return[]; return rows.filter(r=>{ for(const[k,test]of Object.entries(shape)){ if(!test(r[k])){ console.warn("dropped row: bad",k,r); return false } } return true }) }
+const isStr=max=>v=>typeof v==="string"&&v.length<=max, isNum=(lo,hi)=>v=>typeof v==="number"&&v>=lo&&v<=hi, oneOf=set=>v=>set.has(v);
+const SHAPES={ host:{host_id:v=>HOST_RE.test(v),tier:oneOf(TIER_SET),posture:v=>v==null||isNum(0,100)(v)}, alert:{alert_id:isStr(64),host_id:v=>HOST_RE.test(v),severity:oneOf(SEV_SET)}, flow:{host_id:v=>HOST_RE.test(v),dst_port:isNum(0,65535),bytes:isNum(0,Infinity)} };
+checkInvariants();
+/* ====================== state ====================== */
+const S={view:"overview",range:7,ou:new Set(),tier:new Set(),os:new Set(),crit:new Set(),sev:new Set(),q:"",sel:null,sort:{hosts:["posture",1],vuln:["score",-1]},tab:"summary",mapTier:null};
+const since=()=>NOW-S.range*DAY;
+const fHosts=()=>hosts.filter(h=>(!S.ou.size||S.ou.has(h.ou))&&(!S.tier.size||S.tier.has(h.tier))&&(!S.os.size||S.os.has(h.os))&&(!S.crit.size||S.crit.has(h.crit))&&(!S.q||(h.id+h.ip+h.os+h.ou).toLowerCase().includes(S.q.toLowerCase())));
+const fAlerts=(hs)=>{const ids=new Set((hs||fHosts()).map(h=>h.id));return alerts.filter(a=>ids.has(a.host)&&a.ts>=since()&&(!S.sev.size||S.sev.has(a.sev)))};
+const fFim=(hs)=>{const ids=new Set((hs||fHosts()).map(h=>h.id));return fim.filter(f=>ids.has(f.host)&&f.ts>=since())};
+const fmtB=n=>n>1e9?(n/1e9).toFixed(1)+" GB":n>1e6?(n/1e6).toFixed(1)+" MB":(n/1e3).toFixed(0)+" KB";
+const ago=t=>{const s=(NOW-t)/1e3;return s<90?Math.round(s)+"s ago":s<5400?Math.round(s/60)+"m ago":s<DAY/1e3*1.5?Math.round(s/3600)+"h ago":Math.round(s/86400)+"d ago"};
+const fmtT=t=>new Date(t).toISOString().replace("T"," ").slice(5,16);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const postureColor=p=>p>=85?"var(--good)":p>=70?"var(--warn)":p>=55?"var(--serious)":"var(--crit)";
+const sevRank={critical:4,high:3,medium:2,low:1,info:0};
+let toastT; const toast=m=>{const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2200)};
+const tip=document.getElementById("tip"); const showTip=(e,html)=>{tip.innerHTML=html;tip.style.display="block";const x=Math.min(e.clientX+14,innerWidth-280),y=Math.min(e.clientY+14,innerHeight-90);tip.style.left=x+"px";tip.style.top=y+"px"}; const hideTip=()=>tip.style.display="none";
+try{const saved=JSON.parse(localStorage.getItem("hv.filters")||"null");if(saved){S.range=saved.range||7;for(const k of["ou","tier","os","crit","sev"])S[k]=new Set(saved[k]||[])}}catch{}
+const persist=()=>{try{localStorage.setItem("hv.filters",JSON.stringify({range:S.range,ou:[...S.ou],tier:[...S.tier],os:[...S.os],crit:[...S.crit],sev:[...S.sev]}))}catch{}};
+
+/* ====================== nav ====================== */
+const VIEWS=[["overview","Overview","M3 12l9-8 9 8M5 10v10h14V10"],["map","Dep. Map","M12 3v4M5 20l3-6M19 20l-3-6M4 8h4M16 8h4M12 7a3 3 0 100 6 3 3 0 000-6M6 20a2 2 0 100-4 2 2 0 000 4M18 20a2 2 0 100-4 2 2 0 000 4M6 10a2 2 0 100-4 2 2 0 000 4M18 10a2 2 0 100-4 2 2 0 000 4"],["hosts","Hosts","M4 6h16v5H4zM4 13h16v5H4zM7 8.5h.01M7 15.5h.01"],["vulns","Vulns","M12 3l9 16H3zM12 10v4M12 17h.01"],["fim","FIM","M6 3h9l5 5v13H6zM14 3v6h6M9 14l2 2 4-4"],["allowlist","Allowlist","M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4"],["policy","Policy","M4 5h6v6H4zM14 5h6v6h-6zM4 15h6v6H4zM14 15h6v6h-6zM10 8h4M10 18h4M7 11v4M17 11v4"],["forensics","Forensics","M10 4a6 6 0 100 12 6 6 0 000-12zM14.5 14.5L20 20M10 7v3l2 1"],["fleet","Fleet","M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01M12 7h4M12 17h4"]];
+function renderRail(){const r=document.getElementById("rail");r.querySelectorAll("button,.spacer").forEach(b=>b.remove());const open=alerts.filter(a=>a.status==="open"&&a.sev==="critical"&&a.ts>=since()).length;for(const[v,l,p]of VIEWS){const b=document.createElement("button");b.className=S.view===v?"active":"";b.title=l;b.innerHTML=`<svg viewBox="0 0 24 24"><path d="${p}"/></svg><span>${l}</span>${v==="forensics"&&open?`<span class="badge">${open}</span>`:""}`;b.onclick=()=>go(v);r.appendChild(b)}const sp=document.createElement("div");sp.className="spacer";r.appendChild(sp)}
+function go(v){S.view=v;location.hash=v;render()}
+addEventListener("hashchange",()=>{const v=location.hash.slice(1);if(VIEWS.some(x=>x[0]===v)&&v!==S.view){S.view=v;render()}});
+{const v=location.hash.slice(1);if(VIEWS.some(x=>x[0]===v))S.view=v}
+
+/* ====================== top filter bar ====================== */
+function renderTop(){
+  const t=document.getElementById("top");const hs=fHosts();
+  const multi=(key,label,opts)=>{const on=S[key].size;return `<label class="chip ${on?"on":""}" title="${label}">${label}${on?` <b>${[...S[key]].join(", ")}</b>`:""}<select data-k="${key}"><option value="">${on?"add…":"any"}</option>${opts.filter(o=>!S[key].has(o)).map(o=>`<option>${o}</option>`).join("")}</select>${on?`<span class="x" data-clear="${key}">×</span>`:""}</label>`};
+  t.innerHTML=`<h1>HostVigil <span>/ ${VIEWS.find(v=>v[0]===S.view)[1]}</span></h1><div class="sep"></div>
+  <label class="chip on">Range <select data-k="range">${[1,3,7,14].map(d=>`<option value="${d}" ${S.range===d?"selected":""}>${d===1?"24 h":d+" d"}</option>`).join("")}</select></label>
+  ${multi("ou","OU",OUS)}${multi("tier","Tier",TIERS)}${multi("os","OS",OS)}${multi("crit","Criticality",CRIT)}${multi("sev","Severity",SEVS)}
+  <label class="chip ${S.q?"on":""}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input id="q" placeholder="Filter hosts, IPs, OS…" value="${esc(S.q)}"></label>
+  ${(S.ou.size||S.tier.size||S.os.size||S.crit.size||S.sev.size||S.q)?`<button class="chip ghost" id="clearall">Clear all</button>`:""}
+  <span class="live"><i></i>${hs.length}/${hosts.length} hosts in scope · <span class="kbd">Ctrl K</span></span>`;
+  t.querySelectorAll("select[data-k]").forEach(s=>s.onchange=e=>{const k=s.dataset.k;if(k==="range")S.range=+s.value;else if(s.value)S[k].add(s.value);persist();render()});
+  t.querySelectorAll("[data-clear]").forEach(x=>x.onclick=()=>{S[x.dataset.clear].clear();persist();render()});
+  const q=t.querySelector("#q");let qt;q.oninput=()=>{clearTimeout(qt);qt=setTimeout(()=>{S.q=q.value;renderMain();},180)};
+  const c=t.querySelector("#clearall");if(c)c.onclick=()=>{for(const k of["ou","tier","os","crit","sev"])S[k].clear();S.q="";persist();render()};
+}
+function addFilter(k,v){S[k].add(v);persist();render();toast(`Filter: ${k} = ${v}`)}
+
+/* ====================== chart helpers (D3) ====================== */
+function spark(vals,color){const w=90,h=34,x=d3.scaleLinear([0,vals.length-1],[0,w]),y=d3.scaleLinear([0,d3.max(vals)||1],[h-2,2]);const line=d3.line().x((d,i)=>x(i)).y(d=>y(d)).curve(d3.curveMonotoneX),area=d3.area().x((d,i)=>x(i)).y0(h).y1(d=>y(d)).curve(d3.curveMonotoneX);const id="g"+Math.random().toString(36).slice(2,7);return `<svg class="spark" viewBox="0 0 ${w} ${h}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".35"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><path d="${area(vals)}" fill="url(#${id})"/><path d="${line(vals)}" fill="none" stroke="${color}" stroke-width="1.5"/><circle cx="${x(vals.length-1)}" cy="${y(vals[vals.length-1])}" r="2.5" fill="${color}"/></svg>`}
+function lineChart(el,series,opts={}){ // series: [{name,color,values:[{t,v}]}]
+  if(!series.length){el.innerHTML='<div class="empty">No data for the selected severities</div>';return}const W=el.clientWidth||600,H=opts.h||220,m={t:10,r:12,b:26,l:34};const svg=d3.select(el).html("").append("svg").attr("viewBox",`0 0 ${W} ${H}`);
+  const all=series.flatMap(s=>s.values);const x=d3.scaleTime(d3.extent(all,d=>d.t),[m.l,W-m.r]),y=d3.scaleLinear([0,d3.max(all,d=>d.v)*1.15||1],[H-m.b,m.t]).nice();
+  svg.append("g").attr("class","grid").call(d3.axisLeft(y).ticks(4).tickSize(-(W-m.l-m.r)).tickFormat("")).attr("transform",`translate(${m.l},0)`).select(".domain").remove();
+  svg.append("g").attr("class","axis").attr("transform",`translate(0,${H-m.b})`).call(d3.axisBottom(x).ticks(Math.min(7,Math.floor(W/90))).tickFormat(d3.timeFormat(S.range<=1?"%H:%M":"%b %d"))).select(".domain").remove();
+  svg.append("g").attr("class","axis").attr("transform",`translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4)).select(".domain").remove();
+  const line=d3.line().x(d=>x(d.t)).y(d=>y(d.v)).curve(d3.curveMonotoneX);
+  for(const s of series){if(opts.area){const area=d3.area().x(d=>x(d.t)).y0(y(0)).y1(d=>y(d.v)).curve(d3.curveMonotoneX);svg.append("path").attr("d",area(s.values)).attr("fill",s.color).attr("fill-opacity",.12)}svg.append("path").attr("d",line(s.values)).attr("fill","none").attr("stroke",s.color).attr("stroke-width",2);const last=s.values[s.values.length-1];svg.append("circle").attr("cx",x(last.t)).attr("cy",y(last.v)).attr("r",3.5).attr("fill",s.color).attr("stroke","var(--bg)").attr("stroke-width",2)}
+  const cross=svg.append("line").attr("stroke","var(--fg3)").attr("stroke-dasharray","3 3").attr("y1",m.t).attr("y2",H-m.b).style("display","none");
+  svg.append("rect").attr("x",m.l).attr("y",m.t).attr("width",W-m.l-m.r).attr("height",H-m.t-m.b).attr("fill","transparent").on("mousemove",e=>{const[mx]=d3.pointer(e);const t=x.invert(mx);const bis=d3.bisector(d=>d.t).center;const rows=series.map(s=>{const i=bis(s.values,t);return `<span style="color:${s.color}">●</span> ${s.name}: <b>${s.values[i].v}</b>`});const i0=bis(series[0].values,t);cross.attr("x1",x(series[0].values[i0].t)).attr("x2",x(series[0].values[i0].t)).style("display",null);showTip(e,`<div class="muted">${fmtT(series[0].values[i0].t)}</div>${rows.join("<br>")}`)}).on("mouseleave",()=>{cross.style("display","none");hideTip()});
+  if(series.length>1)d3.select(el).append("div").attr("class","legend").html(series.map(s=>`<span><i style="background:${s.color}"></i>${s.name}</span>`).join(""));
+}
+function barChart(el,data,opts={}){ // data: [{label,value,color,onClick,sub}]
+  const W=el.clientWidth||400,rowH=opts.rowH||26,H=data.length*rowH+6,lw=opts.lw||150;const svg=d3.select(el).html("").append("svg").attr("viewBox",`0 0 ${W} ${H}`);
+  const x=d3.scaleLinear([0,d3.max(data,d=>d.value)||1],[lw,W-44]);
+  const g=svg.selectAll("g").data(data).join("g").attr("transform",(d,i)=>`translate(0,${i*rowH})`).style("cursor",d=>d.onClick?"pointer":"default").on("click",(e,d)=>d.onClick&&d.onClick()).on("mousemove",(e,d)=>showTip(e,`<b>${esc(d.label)}</b><br>${d.sub||""} ${d.value}`)).on("mouseleave",hideTip);
+  g.append("text").attr("x",lw-8).attr("y",rowH/2+4).attr("text-anchor","end").attr("fill","var(--fg2)").text(d=>d.label.length>24?d.label.slice(0,23)+"…":d.label);
+  g.append("rect").attr("x",lw).attr("y",6).attr("height",rowH-12).attr("width",W-lw-44).attr("fill","rgba(148,163,184,.08)").attr("rx",3);
+  g.append("rect").attr("x",lw).attr("y",6).attr("height",rowH-12).attr("width",d=>Math.max(2,x(d.value)-lw)).attr("fill",d=>d.color||"var(--accent)").attr("rx",3);
+  g.append("text").attr("x",d=>x(d.value)+6).attr("y",rowH/2+4).attr("fill","var(--fg)").attr("class","num").style("font-weight",600).text(d=>d.value);
+}
+function histogram(el,vals,opts={}){const W=el.clientWidth||400,H=opts.h||150,m={t:8,r:8,b:22,l:26};const svg=d3.select(el).html("").append("svg").attr("viewBox",`0 0 ${W} ${H}`);const bins=d3.bin().domain([30,100]).thresholds(14)(vals);const x=d3.scaleLinear([30,100],[m.l,W-m.r]),y=d3.scaleLinear([0,d3.max(bins,b=>b.length)||1],[H-m.b,m.t]);
+  svg.append("g").attr("class","axis").attr("transform",`translate(0,${H-m.b})`).call(d3.axisBottom(x).ticks(7)).select(".domain").remove();
+  svg.selectAll("rect").data(bins).join("rect").attr("x",b=>x(b.x0)+1).attr("y",b=>y(b.length)).attr("width",b=>Math.max(1,x(b.x1)-x(b.x0)-2)).attr("height",b=>y(0)-y(b.length)).attr("rx",3).attr("fill",b=>postureColor((b.x0+b.x1)/2)).style("cursor","pointer").on("mousemove",(e,b)=>showTip(e,`Posture ${b.x0}–${b.x1}<br><b>${b.length}</b> hosts`)).on("mouseleave",hideTip).on("click",(e,b)=>{S.q="";S.view="hosts";S.postureBand=[b.x0,b.x1];go("hosts")});
+  
+}
+function donut(el,parts,center){const W=120,r=52;const svg=d3.select(el).html("").append("svg").attr("viewBox",`0 0 ${W} ${W}`).style("width","120px");const pie=d3.pie().value(d=>d.v).sort(null).padAngle(.03),arc=d3.arc().innerRadius(r-12).outerRadius(r).cornerRadius(3);svg.append("g").attr("transform",`translate(${W/2},${W/2})`).selectAll("path").data(pie(parts)).join("path").attr("d",arc).attr("fill",d=>d.data.c).on("mousemove",(e,d)=>showTip(e,`${d.data.l}: <b>${d.data.v}</b>`)).on("mouseleave",hideTip);svg.append("text").attr("x",W/2).attr("y",W/2+6).attr("text-anchor","middle").attr("fill","var(--fg)").style("font-size","20px").style("font-weight","700").text(center)}
+function radar(el,axes){const W=240,c=W/2,r=86;const svg=d3.select(el).html("").append("svg").attr("class","radar").attr("viewBox",`0 0 ${W} ${W}`).style("max-width","260px").style("margin","0 auto");const n=axes.length,ang=i=>i/n*2*Math.PI-Math.PI/2;for(const k of[.25,.5,.75,1])svg.append("polygon").attr("points",axes.map((a,i)=>`${c+Math.cos(ang(i))*r*k},${c+Math.sin(ang(i))*r*k}`).join(" ")).attr("fill","none").attr("stroke","rgba(148,163,184,.15)");
+  axes.forEach((a,i)=>{svg.append("line").attr("x1",c).attr("y1",c).attr("x2",c+Math.cos(ang(i))*r).attr("y2",c+Math.sin(ang(i))*r).attr("stroke","rgba(148,163,184,.15)");svg.append("text").attr("x",c+Math.cos(ang(i))*(r+16)).attr("y",c+Math.sin(ang(i))*(r+16)+3).attr("text-anchor","middle").text(a.l)});
+  svg.append("polygon").attr("points",axes.map((a,i)=>`${c+Math.cos(ang(i))*r*a.v/100},${c+Math.sin(ang(i))*r*a.v/100}`).join(" ")).attr("fill","var(--accent)").attr("fill-opacity",.2).attr("stroke","var(--accent)").attr("stroke-width",2);
+  axes.forEach((a,i)=>svg.append("circle").attr("cx",c+Math.cos(ang(i))*r*a.v/100).attr("cy",c+Math.sin(ang(i))*r*a.v/100).attr("r",3).attr("fill","var(--accent)").on("mousemove",e=>showTip(e,`${a.l}: <b>${a.v}</b>/100`)).on("mouseleave",hideTip))}
+function gauge(el,pct,label,color){const svg=d3.select(el).html("").append("svg").attr("viewBox","0 0 120 120");const arc=d3.arc().innerRadius(44).outerRadius(54).cornerRadius(4).startAngle(-Math.PI*.75);svg.append("path").attr("transform","translate(60,60)").attr("d",arc({endAngle:Math.PI*.75})).attr("fill","rgba(148,163,184,.12)");svg.append("path").attr("transform","translate(60,60)").attr("d",arc({endAngle:-Math.PI*.75+Math.PI*1.5*pct/100})).attr("fill",color);svg.append("text").attr("x",60).attr("y",64).attr("text-anchor","middle").attr("fill","var(--fg)").style("font-size","22px").style("font-weight","700").text(Math.round(pct));svg.append("text").attr("x",60).attr("y",96).attr("text-anchor","middle").text(label)}
+const bucketSeries=(items,getT,days)=>{const n=days<=1?24:days<=3?36:days;const step=(days*DAY)/n;const arr=Array.from({length:n},(_,i)=>({t:since()+i*step+step/2,v:0}));for(const it of items){const i=Math.floor((getT(it)-since())/step);if(i>=0&&i<n)arr[i].v++}return arr};
+
+/* ====================== views ====================== */
+const main=document.getElementById("main");
+function render(){renderRail();renderTop();renderMain();if(S.sel)renderDrawer()}
+function renderMain(){hideTip();stopMap();const hs=fHosts();({overview:vOverview,map:vMap,hosts:vHosts,vulns:vVulns,fim:vFim,allowlist:vAllow,policy:vPolicy,forensics:vForensics,fleet:vFleet})[S.view](hs);main.scrollTop=0}
+const card=(cls,title,body,extra="")=>`<div class="card ${cls}"><h3>${title}${extra}</h3>${body}</div>`;
+
+function vOverview(hs){
+  const al=fAlerts(hs),open=al.filter(a=>a.status==="open"),critA=open.filter(a=>a.sev==="critical");const fm=fFim(hs);const sus=fm.filter(f=>f.cls==="suspicious");
+  const avgP=Math.round(d3.mean(hs,h=>h.posture)||0);const hv=hs.flatMap(h=>h.vulns.map(v=>({h,c:CVES[v]})));const critV=hv.filter(x=>x.c[2]>=9).length,kev=hv.filter(x=>x.c[3]).length;const down=hs.filter(h=>!h.agentOk).length;const drift=d3.sum(hs,h=>h.drift);const audit=hs.filter(h=>h.allowMode==="Audit").length;
+  const sp=(items,getT)=>bucketSeries(items,getT,S.range).map(d=>d.v);
+  const kpi=(l,v,d,color,sparkVals,click)=>`<div class="card kpi s2" data-go="${click}"><div class="l">${l}</div><div class="v num" style="color:${color||"var(--fg)"}">${v}</div><div class="d">${d}</div>${sparkVals?spark(sparkVals,color||"var(--accent)"):""}</div>`;
+  main.innerHTML=`<div class="grid">
+    ${kpi("Fleet posture",avgP,`<b style="color:${postureColor(avgP)}">${avgP>=80?"Healthy":avgP>=65?"Needs work":"At risk"}</b> · ${hs.length} hosts`,postureColor(avgP),hs.slice(0,30).map(h=>h.posture),"hosts")}
+    ${kpi("Open alerts",open.length,`<b class="up">${critA.length} critical</b> · ${S.range}d`,critA.length?"var(--crit)":"var(--fg)",sp(al,a=>a.ts),"forensics")}
+    ${kpi("Critical CVEs",critV,`<b>${kev}</b> on CISA KEV · ${hv.length} total`,critV?"var(--serious)":"var(--good)",null,"vulns")}
+    ${kpi("Suspicious file changes",sus.length,`${fm.length} changes total`,sus.length?"var(--warn)":"var(--good)",sp(fm,f=>f.ts),"fim")}
+    ${kpi("Drift findings",drift,`${hs.filter(h=>h.drift>3).length} hosts above threshold`,drift>60?"var(--warn)":"var(--fg)",null,"hosts")}
+    ${kpi("Agents offline",down,`${audit} in allowlist audit mode`,down?"var(--crit)":"var(--good)",null,"fleet")}
+    ${card("s8 glow","Alerts over time",`<div class="chart" id="c-alerts"></div>`,`<span class="right">by severity · ${S.range}d</span>`)}
+    ${card("s4","Posture distribution",`<div class="chart" id="c-post"></div><div class="legend"><span><i style="background:var(--good)"></i>≥85</span><span><i style="background:var(--warn)"></i>70–84</span><span><i style="background:var(--serious)"></i>55–69</span><span><i style="background:var(--crit)"></i>&lt;55</span></div>`,`<span class="right">click a bin to drill</span>`)}
+    ${card("s4","Fleet heat-grid",`<div id="c-heat" class="heat" style="grid-template-columns:repeat(auto-fill,minmax(16px,1fr))"></div><div class="legend" style="margin-top:8px"><span class="muted">one cell per host · colour = posture · click to open</span></div>`,`<span class="right">${hs.length} hosts</span>`)}
+    ${card("s4","Top exposures",`<div class="chart" id="c-exp"></div>`,`<span class="right">hosts affected</span>`)}
+    ${card("s4","ATT&amp;CK tactic heat",`<div id="c-att" class="hgrid" style="grid-template-columns:1fr"></div>`,`<span class="right">alerts in range</span>`)}
+    ${card("s6","Posture by OU",`<div class="chart" id="c-ou"></div>`,`<span class="right">avg score · click to filter</span>`)}
+    ${card("s6","Tier breakdown",`<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><div id="c-tier"></div><div class="legend" id="c-tierleg" style="flex-direction:column;gap:6px"></div></div>`,`<span class="right">click to filter</span>`)}
+    ${card("s12","Latest alerts",alertTable(al.slice(0,12)),`<span class="right"><button data-go="forensics">All ${al.length} →</button></span>`)}
+  </div><p class="muted" style="margin:14px 0 0;font-size:11px">${DEMO_NOTE}</p>`;
+  main.querySelectorAll("[data-go]").forEach(e=>e.onclick=()=>go(e.dataset.go));
+  // charts
+  const sevCols={critical:"var(--crit)",high:"var(--serious)",medium:"var(--warn)",low:"var(--good)"};
+  lineChart(document.getElementById("c-alerts"),["critical","high","medium","low"].filter(s=>!S.sev.size||S.sev.has(s)).map(s=>({name:s,color:sevCols[s],values:bucketSeries(al.filter(a=>a.sev===s),a=>a.ts,S.range)})),{h:230,area:true});
+  histogram(document.getElementById("c-post"),hs.map(h=>h.posture));
+  const heat=document.getElementById("c-heat");heat.innerHTML=hs.slice().sort((a,b)=>a.ou.localeCompare(b.ou)||a.posture-b.posture).map(h=>`<div class="cell" data-h="${h.id}" style="background:${postureColor(h.posture)};opacity:${.45+h.posture/180}"></div>`).join("");heat.querySelectorAll(".cell").forEach(c=>{const h=hostById[c.dataset.h];c.onmousemove=e=>showTip(e,`<b>${h.id}</b> · ${h.ou}<br>${h.tier} · posture ${h.posture} · ${h.vulns.length} CVEs`);c.onmouseleave=hideTip;c.onclick=()=>openHost(h.id)});
+  const expo=d3.rollups(hv,v=>v.length,x=>x.c[0]).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([id,n])=>{const c=CVES.find(x=>x[0]===id);return{label:id,value:n,color:c[2]>=9?"var(--crit)":c[2]>=8?"var(--serious)":"var(--warn)",sub:`${c[1]} · CVSS ${c[2]}${c[3]?" · KEV":""} ·`,onClick:()=>{S.view="vulns";S.cve=id;go("vulns")}}});
+  barChart(document.getElementById("c-exp"),expo,{lw:118});
+  const att=document.getElementById("c-att");const tc=d3.rollup(al,v=>v.length,a=>a.tactic);const mx=d3.max([...tc.values()])||1;att.innerHTML=`<div class="row" style="--n:4">${ATTACK.map(([id,l])=>{const n=tc.get(id)||0;return`<div class="cell" title="${l}" data-t="${id}" style="height:46px;flex-direction:column;gap:2px;background:${n?`rgba(244,63,94,${(n/mx)*.85+.1})`:"rgba(148,163,184,.06)"};color:${n/mx>.5?"#fff":"var(--fg2)"}"><b style="font-size:13px">${n||"–"}</b><span style="font-family:var(--font);font-size:9.5px;opacity:.85">${l}</span></div>`}).join("")}</div>`;att.querySelectorAll(".cell").forEach(c=>{c.onmousemove=e=>showTip(e,`<b>${ATTACK.find(a=>a[0]===c.dataset.t)[1]}</b><br>${tc.get(c.dataset.t)||0} alerts`);c.onmouseleave=hideTip;c.onclick=()=>{S.tactic=c.dataset.t;go("forensics")}});
+  barChart(document.getElementById("c-ou"),OUS.map(o=>{const g=hs.filter(h=>h.ou===o);return{label:o,value:Math.round(d3.mean(g,h=>h.posture)||0),color:postureColor(d3.mean(g,h=>h.posture)||0),sub:`${g.length} hosts · avg posture`,onClick:()=>addFilter("ou",o)}}).filter(d=>d.value),{lw:130});
+  const tcount=TIERS.map(t=>({l:t,v:hs.filter(h=>h.tier===t).length,c:TIERC[t]})).filter(d=>d.v);donut(document.getElementById("c-tier"),tcount,hs.length);document.getElementById("c-tierleg").innerHTML=tcount.map(d=>`<span class="tier" style="cursor:pointer" data-t="${d.l}"><i style="background:${d.c}"></i>${d.l} <b class="num" style="color:var(--fg)">${d.v}</b></span>`).join("");document.querySelectorAll("#c-tierleg [data-t]").forEach(e=>e.onclick=()=>addFilter("tier",e.dataset.t));
+  bindRows();
+}
+function alertTable(al){return `<div class="twrap"><table class="tbl"><thead><tr><th>Time</th><th>Severity</th><th>Rule</th><th>Host</th><th>Process</th><th>User</th><th>Tactic</th><th>Status</th></tr></thead><tbody>${al.length?al.map(a=>`<tr class="row" data-host="${a.host}" data-alert="${a.id}"><td class="mono muted">${fmtT(a.ts)}</td><td><span class="sev ${a.sev}">${a.sev}</span></td><td>${esc(a.rule)}</td><td class="mono">${a.host}</td><td class="mono">${a.proc}</td><td class="mono">${a.user}</td><td class="muted">${ATTACK.find(t=>t[0]===a.tactic)[1]}</td><td><span class="pill ${a.status==="open"?"bad":"ok"}">${a.status}</span></td></tr>`).join(""):`<tr><td colspan="8" class="empty">No alerts match the current filters</td></tr>`}</tbody></table></div>`}
+function bindRows(){main.querySelectorAll("tr[data-host]").forEach(r=>r.onclick=()=>openHost(r.dataset.host,r.dataset.alert?"alerts":undefined))}
+
+/* ---- dependency map (canvas force graph with animated flows) ---- */
+let mapAnim=null;function stopMap(){if(mapAnim){cancelAnimationFrame(mapAnim.raf);mapAnim.sim.stop();mapAnim=null}}
+function vMap(hs){
+  const ids=new Set(hs.map(h=>h.id));const fl=flows.filter(f=>ids.has(f.src)&&ids.has(f.dst));
+  const edgeAgg=d3.rollups(fl,v=>({bytes:d3.sum(v,f=>f.bytes),procs:[...new Set(v.map(f=>f.proc))],ports:[...new Set(v.map(f=>f.port))],sus:v.some(f=>suspiciousFlows.has(f.src+">"+f.dst))}),f=>f.src+">"+f.dst).map(([k,v])=>({source:k.split(">")[0],target:k.split(">")[1],...v}));
+  const tierPairs=d3.rollups(fl,v=>v.length,f=>hostById[f.src].tier+"→"+hostById[f.dst].tier).sort((a,b)=>b[1]-a[1]);
+  main.innerHTML=`<div class="grid">${card("s12 glow","Application dependency map",`<canvas id="map"></canvas><div class="maplegend">${TIERS.map(t=>`<span class="tier" style="cursor:pointer" data-t="${t}"><i style="background:${TIERC[t]}"></i>${t} <span class="muted num">${hs.filter(h=>h.tier===t).length}</span></span>`).join("")}<span class="tier"><i style="background:var(--crit);box-shadow:0 0 6px var(--crit)"></i>suspicious flow</span></div><div class="mapctl"><button class="btn" id="m-fit">Fit</button><button class="btn" id="m-sus">${S.mapSus?"All flows":"Suspicious only"}</button></div>`,`<span class="right">${hs.length} hosts · ${edgeAgg.length} edges · ${fmtB(d3.sum(fl,f=>f.bytes))} · drag, scroll to zoom, click a node</span>`)}
+    ${card("s6","Tier-to-tier conversations",`<div class="chart" id="c-tt"></div>`,`<span class="right">flow count</span>`)}
+    ${card("s6","Top talkers",barChartHTML(d3.rollups(fl,v=>d3.sum(v,f=>f.bytes),f=>f.src).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([h,b])=>({label:h,value:b,color:TIERC[hostById[h].tier],onClick:()=>openHost(h,"flows")})),true),`<span class="right">bytes sent</span>`)}
+    ${card("s12","Flow table",flowTable(fl.slice(0,40)),`<span class="right">${fl.length} flows</span>`)}</div>`;
+  barChart(document.getElementById("c-tt"),tierPairs.slice(0,8).map(([k,n])=>({label:k,value:n,color:TIERC[k.split("→")[0]],sub:"flows ·"})),{lw:140});
+  document.querySelectorAll(".maplegend [data-t]").forEach(e=>e.onclick=()=>addFilter("tier",e.dataset.t));
+  document.getElementById("m-sus").onclick=()=>{S.mapSus=!S.mapSus;renderMain()};
+  bindRows();
+  // canvas sim
+  const cv=document.getElementById("map");const dpr=devicePixelRatio||1;const W=cv.clientWidth,H=560;cv.width=W*dpr;cv.height=H*dpr;const ctx=cv.getContext("2d");ctx.scale(dpr,dpr);
+  const nodes=hs.map(h=>({id:h.id,h,r:h.tier==="Workstation"?4:h.tier==="DC"?9:7}));const byId=Object.fromEntries(nodes.map(n=>[n.id,n]));
+  const links=(S.mapSus?edgeAgg.filter(e=>e.sus):edgeAgg).map(e=>({...e,source:byId[e.source],target:byId[e.target]}));
+  const tierX={Workstation:.12,Web:.34,App:.52,DB:.70,Infra:.62,DC:.88},tierY={Workstation:.5,Web:.28,App:.5,DB:.42,Infra:.84,DC:.2};
+  const sim=d3.forceSimulation(nodes).force("link",d3.forceLink(links).distance(l=>l.source.h.tier==="Workstation"?80:120).strength(.2)).force("charge",d3.forceManyBody().strength(-70)).force("x",d3.forceX(n=>W*tierX[n.h.tier]).strength(.25)).force("y",d3.forceY(n=>H*tierY[n.h.tier]).strength(.25)).force("col",d3.forceCollide(n=>n.r+6)).alphaDecay(.03);
+  let T={k:1,x:0,y:0};const particles=links.map(l=>({l,p:rnd(),s:.002+Math.min(l.bytes/4e9,.006)}));
+  const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();const colT=Object.fromEntries(TIERS.map(t=>[t,css(TIERC[t].slice(4,-1))]));const critC=css("--crit");
+  let hover=null;
+  function draw(){ctx.clearRect(0,0,W,H);ctx.save();ctx.translate(T.x,T.y);ctx.scale(T.k,T.k);
+    for(const l of links){ctx.beginPath();ctx.moveTo(l.source.x,l.source.y);ctx.lineTo(l.target.x,l.target.y);ctx.strokeStyle=l.sus?"rgba(244,63,94,.55)":(hover&&(l.source===hover||l.target===hover))?"rgba(34,211,238,.6)":"rgba(148,163,184,.13)";ctx.lineWidth=l.sus?1.6:Math.min(3,.5+l.bytes/4e7);ctx.stroke()}
+    for(const p of particles){p.p+=p.s;if(p.p>1)p.p=0;const l=p.l;const x=l.source.x+(l.target.x-l.source.x)*p.p,y=l.source.y+(l.target.y-l.source.y)*p.p;ctx.beginPath();ctx.arc(x,y,l.sus?2.2:1.4,0,7);ctx.fillStyle=l.sus?critC:"rgba(34,211,238,.9)";ctx.fill()}
+    for(const n of nodes){const c=colT[n.h.tier];ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,7);ctx.fillStyle=c;ctx.globalAlpha=.9;ctx.fill();ctx.globalAlpha=1;if(n.h.posture<55||!n.h.agentOk){ctx.beginPath();ctx.arc(n.x,n.y,n.r+3,0,7);ctx.strokeStyle=n.h.agentOk?critC:"rgba(148,163,184,.7)";ctx.lineWidth=1.5;ctx.setLineDash(n.h.agentOk?[]:[2,2]);ctx.stroke();ctx.setLineDash([])}if(n===hover||n.r>6){ctx.fillStyle=n===hover?"#fff":"rgba(230,237,247,.75)";ctx.font=`${n===hover?11:9.5}px ${css("--mono")}`;ctx.textAlign="center";ctx.fillText(n.id,n.x,n.y-n.r-5)}if(n===hover){ctx.beginPath();ctx.arc(n.x,n.y,n.r+6,0,7);ctx.strokeStyle="#22D3EE";ctx.lineWidth=2;ctx.stroke()}}
+    ctx.restore();mapAnim.raf=requestAnimationFrame(draw)}
+  mapAnim={sim,raf:requestAnimationFrame(draw)};
+  const pt=e=>{const r=cv.getBoundingClientRect();return[(e.clientX-r.left-T.x)/T.k,(e.clientY-r.top-T.y)/T.k]};const find=(x,y)=>nodes.find(n=>Math.hypot(n.x-x,n.y-y)<n.r+5);
+  d3.select(cv).call(d3.zoom().scaleExtent([.4,4]).filter(e=>{if(e.type==="wheel")return true;if(e.button)return false;const[x,y]=pt(e);return !find(x,y)}).on("zoom",e=>{T=e.transform})).call(d3.drag().container(cv).subject(e=>{const[x,y]=pt(e.sourceEvent);return find(x,y)}).on("start",e=>{sim.alphaTarget(.3).restart();e.subject.fx=e.subject.x;e.subject.fy=e.subject.y}).on("drag",e=>{const[x,y]=pt(e.sourceEvent);e.subject.fx=x;e.subject.fy=y}).on("end",e=>{sim.alphaTarget(0);e.subject.fx=null;e.subject.fy=null}));
+  cv.onmousemove=e=>{const[x,y]=pt(e);hover=find(x,y);cv.style.cursor=hover?"pointer":"grab";if(hover){const deg=links.filter(l=>l.source===hover||l.target===hover).length;showTip(e,`<b>${hover.id}</b> · ${hover.h.tier}<br>${hover.h.ip} · ${hover.h.os}<br>posture ${hover.h.posture} · ${deg} edges · ${hover.h.vulns.length} CVEs${hover.h.agentOk?"":"<br><span style='color:var(--fg3)'>agent offline</span>"}`)}else hideTip()};cv.onmouseleave=()=>{hover=null;hideTip()};
+  cv.onclick=e=>{const[x,y]=pt(e);const n=find(x,y);if(n)openHost(n.id,"flows")};
+  document.getElementById("m-fit").onclick=()=>{T={k:1,x:0,y:0};d3.select(cv).call(d3.zoom().transform,d3.zoomIdentity)};
+}
+function barChartHTML(data,bytes){const id="b"+Math.random().toString(36).slice(2,7);setTimeout(()=>{const el=document.getElementById(id);if(el)barChart(el,data.map(d=>({...d,value:bytes?Math.round(d.value/1e6):d.value,sub:bytes?"MB sent ·":""})),{lw:110})});return `<div class="chart" id="${id}"></div>`}
+function flowTable(fl){return `<div class="twrap"><table class="tbl"><thead><tr><th>Source</th><th>Tier</th><th>→</th><th>Destination</th><th>Tier</th><th>Process</th><th>Port</th><th>Bytes</th><th>Count</th><th></th></tr></thead><tbody>${fl.map(f=>{const s=hostById[f.src],d=hostById[f.dst],sus=suspiciousFlows.has(f.src+">"+f.dst);return`<tr class="row" data-host="${f.src}"><td class="mono">${f.src}</td><td><span class="tier"><i style="background:${TIERC[s.tier]}"></i>${s.tier}</span></td><td class="muted">→</td><td class="mono">${f.dst}</td><td><span class="tier"><i style="background:${TIERC[d.tier]}"></i>${d.tier}</span></td><td class="mono">${f.proc}</td><td class="mono">${f.port}</td><td class="num">${fmtB(f.bytes)}</td><td class="num">${f.count}</td><td>${sus?`<span class="sev critical">suspicious</span>`:""}</td></tr>`}).join("")}</tbody></table></div>`}
+
+/* ---- hosts ---- */
+function vHosts(hs){
+  let rows=hs.slice();if(S.postureBand){rows=rows.filter(h=>h.posture>=S.postureBand[0]&&h.posture<S.postureBand[1])}
+  const[k,dir]=S.sort.hosts;rows.sort((a,b)=>(typeof a[k]==="number"?a[k]-b[k]:String(a[k]).localeCompare(String(b[k])))*dir);
+  const th=(key,l)=>`<th data-k="${key}" class="${k===key?"sorted":""}">${l}${k===key?(dir>0?" ↑":" ↓"):""}</th>`;
+  main.innerHTML=`<div class="grid">${card("s3 kpi","Hosts",`<div class="v num">${rows.length}</div><div class="d">${S.postureBand?`posture ${S.postureBand[0]}–${S.postureBand[1]} <span class="x" id="pb" style="cursor:pointer;color:var(--crit)">× clear</span>`:"in scope"}</div>`)}
+    ${card("s3 kpi","Avg posture",`<div class="v num" style="color:${postureColor(d3.mean(rows,h=>h.posture)||0)}">${Math.round(d3.mean(rows,h=>h.posture)||0)}</div><div class="d">fleet median ${d3.median(hosts,h=>h.posture)}</div>`)}
+    ${card("s3 kpi","No BitLocker",`<div class="v num" style="color:var(--warn)">${rows.filter(h=>!h.bitlocker).length}</div><div class="d">${rows.filter(h=>!h.tpm).length} without TPM attestation</div>`)}
+    ${card("s3 kpi","Excess local admins",`<div class="v num" style="color:var(--serious)">${rows.filter(h=>h.localAdmins>2).length}</div><div class="d">hosts with &gt;2 local admins</div>`)}
+    ${card("s12","Host inventory",`<div class="twrap" style="max-height:640px"><table class="tbl"><thead><tr>${th("id","Host")}${th("ip","IP")}${th("tier","Tier")}${th("ou","OU")}${th("os","OS")}${th("crit","Criticality")}${th("posture","Posture")}<th>CVEs</th>${th("drift","Drift")}<th>Ports</th>${th("allowMode","Allowlist")}${th("lastSeen","Agent")}</tr></thead><tbody>${rows.map(h=>`<tr class="row ${S.sel===h.id?"sel":""}" data-host="${h.id}"><td class="mono">${h.id}</td><td class="mono muted">${h.ip}</td><td><span class="tier"><i style="background:${TIERC[h.tier]}"></i>${h.tier}</span></td><td>${h.ou}</td><td class="muted">${h.os.replace("Windows ","")}</td><td><span class="sev ${h.crit==="Critical"?"critical":h.crit==="High"?"high":h.crit==="Medium"?"medium":"low"}">${h.crit}</span></td><td><div style="display:flex;align-items:center;gap:8px"><span class="num" style="width:24px;color:${postureColor(h.posture)}">${h.posture}</span><div class="bar"><i style="width:${h.posture}%;background:${postureColor(h.posture)}"></i></div></div></td><td class="num" style="color:${h.vulns.some(v=>CVES[v][2]>=9)?"var(--crit)":"inherit"}">${h.vulns.length}</td><td class="num" style="color:${h.drift>3?"var(--warn)":"inherit"}">${h.drift}</td><td class="mono muted">${h.listening.slice(0,4).join(",")}${h.listening.length>4?"…":""}</td><td><span class="pill ${h.allowMode==="Enforce"?"ok":"warnp"}">${h.allowMode}</span></td><td><span class="pill ${h.agentOk?"ok":"bad"}">${h.agentOk?"online":"offline "+ago(h.lastSeen)}</span></td></tr>`).join("")}</tbody></table></div>`,`<span class="right">click a column to sort · click a row to drill</span>`)}</div>`;
+  main.querySelectorAll("th[data-k]").forEach(t=>t.onclick=()=>{const kk=t.dataset.k;S.sort.hosts=[kk,S.sort.hosts[0]===kk?-S.sort.hosts[1]:1];renderMain()});
+  const pb=document.getElementById("pb");if(pb)pb.onclick=()=>{S.postureBand=null;renderMain()};bindRows();
+}
+/* ---- vulns ---- */
+function vVulns(hs){
+  const hv=hs.flatMap(h=>h.vulns.map(v=>({h,i:v,c:CVES[v]})));const byC=d3.rollups(hv,v=>v,x=>x.i).map(([i,v])=>{const c=CVES[i];const reach=v.filter(x=>x.h.tier==="Web"||x.h.listening.includes(3389)||x.h.listening.includes(445)).length;return{i,id:c[0],name:c[1],score:c[2],kev:c[3],hosts:v.length,reach,exposure:Math.round(c[2]*10*(c[3]?1.5:1)*(1+reach/Math.max(1,v.length)))}});
+  const[k,dir]=S.sort.vuln;byC.sort((a,b)=>(typeof a[k]==="number"?a[k]-b[k]:String(a[k]).localeCompare(String(b[k])))*dir);
+  const th=(key,l)=>`<th data-k="${key}" class="${k===key?"sorted":""}">${l}${k===key?(dir>0?" ↑":" ↓"):""}</th>`;
+  const groups=["Web","App","DB","DC","Infra","Workstation"].filter(t=>hs.some(h=>h.tier===t));const top=byC.slice().sort((a,b)=>b.exposure-a.exposure).slice(0,10);
+  main.innerHTML=`<div class="grid">${card("s3 kpi","Unique CVEs",`<div class="v num">${byC.length}</div><div class="d">${hv.length} host-CVE pairs</div>`)}${card("s3 kpi","Critical (CVSS ≥ 9)",`<div class="v num" style="color:var(--crit)">${byC.filter(c=>c.score>=9).length}</div><div class="d">${hv.filter(x=>x.c[2]>=9).length} instances</div>`)}${card("s3 kpi","On CISA KEV",`<div class="v num" style="color:var(--serious)">${byC.filter(c=>c.kev).length}</div><div class="d">actively exploited</div>`)}${card("s3 kpi","Network-reachable",`<div class="v num" style="color:var(--warn)">${d3.sum(byC,c=>c.reach)}</div><div class="d">instances on exposed services</div>`)}
+    ${card("s12 glow","Exposure matrix",`<div class="matrix" style="grid-template-columns:200px repeat(${groups.length},1fr)" id="mx"></div><div class="legend" style="margin-top:8px"><span class="muted">cell = hosts affected in that tier · colour = CVSS · click to filter tier + CVE</span></div>`,`<span class="right">top 10 by exposure score · CVE × tier</span>`)}
+    ${card("s12","Vulnerability catalogue",`<div class="twrap"><table class="tbl"><thead><tr>${th("id","CVE")}${th("name","Title")}${th("score","CVSS")}${th("kev","KEV")}${th("hosts","Hosts")}${th("reach","Reachable")}${th("exposure","Exposure")}<th>Remediation</th></tr></thead><tbody>${byC.map(c=>`<tr class="row" data-cve="${c.i}" ${S.cve===c.id?'style="outline:1px solid var(--accent)"':""}><td class="mono">${c.id}</td><td>${c.name}</td><td class="num" style="color:${c.score>=9?"var(--crit)":c.score>=7?"var(--serious)":"var(--warn)"};font-weight:600">${c.score}</td><td>${c.kev?'<span class="sev critical">KEV</span>':'<span class="muted">—</span>'}</td><td class="num">${c.hosts}</td><td class="num">${c.reach}</td><td><div style="display:flex;align-items:center;gap:8px"><span class="num" style="width:30px">${c.exposure}</span><div class="bar"><i style="width:${Math.min(100,c.exposure/2.5)}%;background:var(--accent)"></i></div></div></td><td class="muted">${c.name.includes("Windows")||c.name.includes("SMB")||c.name.includes("Kernel")||c.name.includes("CLFS")||c.name.includes("NTFS")||c.name.includes("Netlogon")?"Apply latest cumulative update":"Upgrade package"}</td></tr>`).join("")}</tbody></table></div>`,`<span class="right">exposure = CVSS × KEV × reachability</span>`)}</div>`;
+  const mx=document.getElementById("mx");mx.innerHTML=`<div class="h"></div>${groups.map(g=>`<div class="h"><span class="tier"><i style="background:${TIERC[g]}"></i>${g}</span></div>`).join("")}`+top.map(c=>`<div class="h" style="justify-content:flex-start;font-family:var(--mono);color:var(--fg)">${c.id} <span class="muted" style="margin-left:6px">${c.score}</span></div>${groups.map(g=>{const n=hv.filter(x=>x.i===c.i&&x.h.tier===g).length;const a=n?.15+Math.min(.75,n/8):0;const col=c.score>=9?"244,63,94":c.score>=8?"249,115,22":"245,158,11";return`<div class="c" data-c="${c.i}" data-g="${g}" style="background:rgba(${col},${a});color:${a>.5?"#fff":"var(--fg2)"}">${n||""}</div>`}).join("")}`).join("");
+  mx.querySelectorAll(".c").forEach(c=>{c.onmousemove=e=>showTip(e,`<b>${CVES[c.dataset.c][0]}</b> in ${c.dataset.g}<br>${c.textContent||0} hosts`);c.onmouseleave=hideTip;c.onclick=()=>{S.tier=new Set([c.dataset.g]);S.cve=CVES[c.dataset.c][0];persist();render()}});
+  main.querySelectorAll("th[data-k]").forEach(t=>t.onclick=()=>{const kk=t.dataset.k;S.sort.vuln=[kk,S.sort.vuln[0]===kk?-S.sort.vuln[1]:-1];renderMain()});
+  main.querySelectorAll("tr[data-cve]").forEach(r=>r.onclick=()=>openCve(+r.dataset.cve));
+}
+/* ---- FIM ---- */
+function vFim(hs){
+  const fm=fFim(hs);const byP=d3.rollups(fm,v=>v.length,f=>f.path).sort((a,b)=>b[1]-a[1]);const cls={suspicious:"var(--crit)",config:"var(--warn)",patch:"var(--good)"};
+  main.innerHTML=`<div class="grid">${card("s3 kpi","File changes",`<div class="v num">${fm.length}</div><div class="d">${S.range}d · ${new Set(fm.map(f=>f.host)).size} hosts</div>`)}${card("s3 kpi","Suspicious",`<div class="v num" style="color:var(--crit)">${fm.filter(f=>f.cls==="suspicious").length}</div><div class="d">sensitive paths, odd processes</div>`)}${card("s3 kpi","Config drift",`<div class="v num" style="color:var(--warn)">${fm.filter(f=>f.cls==="config").length}</div><div class="d">outside change window</div>`)}${card("s3 kpi","Patch activity",`<div class="v num" style="color:var(--good)">${fm.filter(f=>f.cls==="patch").length}</div><div class="d">TrustedInstaller / signed</div>`)}
+    ${card("s8 glow","Changes over time",`<div class="chart" id="c-fim"></div>`,`<span class="right">by classification</span>`)}
+    ${card("s4","Most-changed paths",`<div class="chart" id="c-paths"></div>`)}
+    ${card("s12","Change log",`<div class="twrap"><table class="tbl"><thead><tr><th>Time</th><th>Class</th><th>Host</th><th>Path</th><th>Change</th><th>Process</th><th>User</th><th>SHA-256</th></tr></thead><tbody>${fm.slice(0,80).map(f=>`<tr class="row" data-host="${f.host}" data-tab="files"><td class="mono muted">${fmtT(f.ts)}</td><td><span class="sev ${f.cls==="suspicious"?"critical":f.cls==="config"?"medium":"low"}">${f.cls}</span></td><td class="mono">${f.host}</td><td class="mono" style="max-width:360px;overflow:hidden;text-overflow:ellipsis">${esc(f.path)}</td><td>${f.kind}</td><td class="mono">${f.proc}</td><td class="mono">${f.user}</td><td class="mono muted">${f.hash}…</td></tr>`).join("")}</tbody></table></div>`,`<span class="right">${fm.length} changes</span>`)}</div>`;
+  lineChart(document.getElementById("c-fim"),["suspicious","config","patch"].map(c=>({name:c,color:cls[c],values:bucketSeries(fm.filter(f=>f.cls===c),f=>f.ts,S.range)})),{h:220,area:true});
+  barChart(document.getElementById("c-paths"),byP.slice(0,8).map(([p,n])=>({label:p.split("\\").slice(-1)[0],value:n,color:"var(--c2)",sub:p+" ·"})),{lw:120});bindRows();
+}
+/* ---- allowlist ---- */
+function vAllow(hs){
+  const ids=new Set(hs.map(h=>h.id));const q=queue.filter(x=>ids.has(x.host)&&!x.done);const pubs=d3.rollups(hs.flatMap(h=>h.soft),v=>v.length,s=>s.split(" ")[0]).sort((a,b)=>b[1]-a[1]);
+  main.innerHTML=`<div class="grid">${card("s3 kpi","Pending decisions",`<div class="v num" style="color:var(--warn)">${q.length}</div><div class="d">unknown or unsigned executions</div>`)}${card("s3 kpi","Enforce mode",`<div class="v num" style="color:var(--good)">${hs.filter(h=>h.allowMode==="Enforce").length}</div><div class="d">of ${hs.length} hosts · WDAC</div>`)}${card("s3 kpi","Audit mode",`<div class="v num">${hs.filter(h=>h.allowMode==="Audit").length}</div><div class="d">learning golden image</div>`)}${card("s3 kpi","Unsigned seen",`<div class="v num" style="color:var(--crit)">${q.filter(x=>x.pub==="Unsigned"||x.pub==="Unknown").length}</div><div class="d">in pending queue</div>`)}
+    ${card("s7 glow","Approval queue",`<div class="queue" id="aq">${q.map(x=>`<div class="qitem" data-id="${x.id}"><div><div class="p">${esc(x.path)}</div><div class="muted" style="font-size:11px;margin-top:3px"><span style="color:${x.pub==="Unsigned"||x.pub==="Unknown"?"var(--crit)":"var(--fg)"}">${x.pub}</span> · ${x.hash}… · seen ${x.seen}× · first ${ago(x.first)} · <span class="mono" data-host="${x.host}" style="cursor:pointer;color:var(--accent)">${x.host}</span></div></div><div class="a"><button title="Allow by publisher" data-act="allow">✓</button><button title="Deny hash" data-act="deny">✕</button><button title="Investigate" data-act="inv">⌕</button></div></div>`).join("")||`<div class="empty">Queue is empty</div>`}</div>`,`<span class="right">approve by publisher, deny by hash</span>`)}
+    ${card("s5","Publisher tree",`<div class="chart" id="c-pub"></div>`,`<span class="right">installs across fleet</span>`)}
+    ${card("s12","Policy coverage by host",`<div class="twrap" style="max-height:360px"><table class="tbl"><thead><tr><th>Host</th><th>Tier</th><th>Mode</th><th>Installed apps</th><th>Violations (7d)</th><th>Policy</th></tr></thead><tbody>${hs.slice(0,60).map(h=>`<tr class="row" data-host="${h.id}" data-tab="software"><td class="mono">${h.id}</td><td><span class="tier"><i style="background:${TIERC[h.tier]}"></i>${h.tier}</span></td><td><span class="pill ${h.allowMode==="Enforce"?"ok":"warnp"}">${h.allowMode}</span></td><td class="num">${h.soft.length}</td><td class="num">${alerts.filter(a=>a.host===h.id&&a.rule.startsWith("Allowlist")).length}</td><td class="mono muted">wdac-${h.tier.toLowerCase()}-v${h.allowMode==="Enforce"?"12":"11-audit"}</td></tr>`).join("")}</tbody></table></div>`)}</div>`;
+  barChart(document.getElementById("c-pub"),pubs.slice(0,9).map(([p,n])=>({label:p,value:n,color:"var(--c1)",sub:"installs ·"})),{lw:110});
+  main.querySelectorAll(".qitem button").forEach(b=>b.onclick=e=>{e.stopPropagation();const it=b.closest(".qitem");const x=queue.find(q=>q.id===it.dataset.id);if(b.dataset.act==="inv")return openHost(x.host,"software");x.done=true;it.style.opacity=.3;setTimeout(()=>renderMain(),350);toast(b.dataset.act==="allow"?`Allowed publisher: ${x.pub}`:`Denied hash ${x.hash}…`)});
+  main.querySelectorAll("[data-host]").forEach(r=>r.onclick=()=>openHost(r.dataset.host,r.dataset.tab||"software"));
+}
+/* ---- policy ---- */
+function vPolicy(hs){
+  const ids=new Set(hs.map(h=>h.id));const fl=flows.filter(f=>ids.has(f.src)&&ids.has(f.dst));const T=TIERS;const pair=d3.rollup(fl,v=>v.length,f=>hostById[f.src].tier+">"+hostById[f.dst].tier);
+  const allowed=new Set(["Web>App","App>DB","Web>DC","App>DC","Workstation>DC","Workstation>Web","Workstation>Infra","Infra>DC","Infra>DB","DC>DC"]);
+  const total=fl.length,blocked=fl.filter(f=>!allowed.has(hostById[f.src].tier+">"+hostById[f.dst].tier)).length;
+  main.innerHTML=`<div class="grid">${card("s8 glow","Microsegmentation policy canvas",`<div class="matrix" style="grid-template-columns:110px repeat(${T.length},1fr)" id="pm"></div><div class="legend" style="margin-top:8px"><span><i style="background:var(--good)"></i>allowed</span><span><i style="background:var(--crit)"></i>would be dropped</span><span class="muted">rows = source tier · columns = destination tier · number = observed flows · click to toggle</span></div>`,`<span class="right">policy v13 · staged</span>`)}
+    ${card("s4","Simulation",`<div class="gauge"><div id="g1"></div><div><div class="v num" style="font-size:22px;font-weight:700">${total-blocked}<span class="muted" style="font-size:12px;font-weight:400"> / ${total} flows keep working</span></div><div class="muted" style="margin-top:6px"><b style="color:var(--crit)">${blocked}</b> historical flows would be dropped across ${new Set(fl.filter(f=>!allowed.has(hostById[f.src].tier+">"+hostById[f.dst].tier)).map(f=>f.src)).size} hosts.</div><div class="actions" style="margin-top:12px"><button class="btn primary" id="p-stage">Stage to 10% ring</button><button class="btn" id="p-diff">Diff v12</button></div></div></div>`,`<span class="right">${S.range}d history</span>`)}
+    ${card("s12","Flows the policy would drop",flowTable(fl.filter(f=>!allowed.has(hostById[f.src].tier+">"+hostById[f.dst].tier)).slice(0,30)),`<span class="right">${blocked} flows · review before enforcing</span>`)}</div>`;
+  const pm=document.getElementById("pm");pm.innerHTML=`<div class="h">src ↓ / dst →</div>${T.map(t=>`<div class="h"><span class="tier"><i style="background:${TIERC[t]}"></i>${t}</span></div>`).join("")}`+T.map(s=>`<div class="h" style="justify-content:flex-start"><span class="tier"><i style="background:${TIERC[s]}"></i>${s}</span></div>${T.map(d=>{const k=s+">"+d,n=pair.get(k)||0,ok=allowed.has(k);return`<div class="c" data-k="${k}" style="background:${n?(ok?"rgba(16,185,129,.25)":"rgba(244,63,94,.3)"):(ok?"rgba(16,185,129,.08)":"rgba(148,163,184,.05)")};color:${n?"var(--fg)":"var(--fg3)"};border:1px solid ${ok?"rgba(16,185,129,.35)":"transparent"}">${n||"·"}</div>`}).join("")}`).join("");
+  pm.querySelectorAll(".c").forEach(c=>{c.onmousemove=e=>showTip(e,`<b>${c.dataset.k.replace(">"," → ")}</b><br>${pair.get(c.dataset.k)||0} flows · ${allowed.has(c.dataset.k)?"allowed":"blocked"}`);c.onmouseleave=hideTip;c.onclick=()=>{allowed.has(c.dataset.k)?allowed.delete(c.dataset.k):allowed.add(c.dataset.k);toast(`Policy edited: ${c.dataset.k.replace(">"," → ")} ${allowed.has(c.dataset.k)?"allowed":"blocked"} (unsaved)`);}});
+  gauge(document.getElementById("g1"),100*(total-blocked)/Math.max(1,total),"keep working",blocked/total>.1?"var(--warn)":"var(--good)");
+  document.getElementById("p-stage").onclick=()=>toast("Policy v13 staged to ring 1 (10% of hosts). Requires Enforcer role to apply.");document.getElementById("p-diff").onclick=()=>toast("v12 → v13: +2 allow rules (Infra→DB, DC→DC), −1 (Workstation→DB)");bindRows();
+}
+/* ---- forensics ---- */
+function vForensics(hs){
+  let al=fAlerts(hs);if(S.tactic)al=al.filter(a=>a.tactic===S.tactic);const byR=d3.rollups(al,v=>v.length,a=>a.rule).sort((a,b)=>b[1]-a[1]);const byH=d3.rollups(al,v=>v.length,a=>a.host).sort((a,b)=>b[1]-a[1]);
+  main.innerHTML=`<div class="grid">${card("s3 kpi","Alerts",`<div class="v num">${al.length}</div><div class="d">${S.tactic?`${ATTACK.find(t=>t[0]===S.tactic)[1]} <span id="tc" style="cursor:pointer;color:var(--crit)">× clear</span>`:S.range+"d in scope"}</div>`)}${card("s3 kpi","Open critical",`<div class="v num" style="color:var(--crit)">${al.filter(a=>a.status==="open"&&a.sev==="critical").length}</div><div class="d">need triage</div>`)}${card("s3 kpi","Hosts with alerts",`<div class="v num">${byH.length}</div><div class="d">top: <span class="mono">${byH[0]?.[0]||"—"}</span></div>`)}${card("s3 kpi","MTTA",`<div class="v num">${ri(9,14)}m</div><div class="d">median time to acknowledge</div>`)}
+    ${card("s6","Top firing rules",`<div class="chart" id="c-rules"></div>`,`<span class="right">Sigma</span>`)}
+    ${card("s6","Noisiest hosts",`<div class="chart" id="c-hosts"></div>`,`<span class="right">click to drill</span>`)}
+    ${card("s12 glow","Alert stream",alertTable(al.slice(0,120)),`<span class="right">${al.length} alerts · newest first</span>`)}</div>`;
+  barChart(document.getElementById("c-rules"),byR.slice(0,8).map(([r,n])=>({label:r,value:n,color:{critical:"var(--crit)",high:"var(--serious)",medium:"var(--warn)",low:"var(--good)"}[RULES.find(x=>x[0]===r)[1]],sub:"alerts ·"})),{lw:200});
+  barChart(document.getElementById("c-hosts"),byH.slice(0,8).map(([h,n])=>({label:h,value:n,color:TIERC[hostById[h].tier],sub:"alerts ·",onClick:()=>openHost(h,"alerts")})),{lw:100});
+  const tc=document.getElementById("tc");if(tc)tc.onclick=()=>{S.tactic=null;renderMain()};bindRows();
+}
+/* ---- fleet ---- */
+function vFleet(hs){
+  const vers=d3.rollups(hs,v=>v.length,h=>h.agentVer).sort();
+  main.innerHTML=`<div class="grid">${card("s3 kpi","Agents",`<div class="v num">${hs.length}</div><div class="d"><b style="color:var(--good)">${hs.filter(h=>h.agentOk).length}</b> online · <b style="color:var(--crit)">${hs.filter(h=>!h.agentOk).length}</b> offline</div>`)}${card("s3 kpi","Latest version",`<div class="v num">${Math.round(100*hs.filter(h=>h.agentVer==="0.4.2").length/hs.length)}%</div><div class="d">on 0.4.2 · ring 3 rolling out</div>`)}${card("s3 kpi","Avg CPU",`<div class="v num">${(d3.mean(hs,h=>h.cpu)||0).toFixed(1)}%</div><div class="d">budget 2.0% · peak ${d3.max(hs,h=>h.cpu)}%</div>`)}${card("s3 kpi","Avg RAM",`<div class="v num">${Math.round(d3.mean(hs,h=>h.mem)||0)} MB</div><div class="d">budget 150 MB</div>`)}
+    ${card("s12 glow","Agent grid",`<div class="heat" style="grid-template-columns:repeat(auto-fill,minmax(28px,1fr))" id="ag"></div><div class="legend" style="margin-top:8px"><span><i style="background:var(--good)"></i>0.4.2 online</span><span><i style="background:var(--c6)"></i>0.4.1</span><span><i style="background:var(--c3)"></i>0.3.9</span><span><i style="background:var(--crit)"></i>offline</span></div>`,`<span class="right">one cell per agent</span>`)}
+    ${card("s6","Update rings",`<div class="timeline">${[["Ring 0 · canary (5 hosts)","done","0.4.2 · completed 3d ago"],["Ring 1 · 10% (12 hosts)","done","0.4.2 · completed 1d ago"],["Ring 2 · 40% (50 hosts)","active","0.4.2 · 71% complete"],["Ring 3 · remainder","pending","scheduled, waits on ring 2 soak"]].map(([l,s,d])=>`<div class="ev ${s==="active"?"medium":s==="done"?"low":""}"><div>${l} <span class="pill ${s==="done"?"ok":s==="active"?"warnp":""}">${s}</span></div><div class="t">${d}</div></div>`).join("")}</div><div class="actions" style="margin-top:12px"><button class="btn primary" id="f-push">Advance ring 3</button><button class="btn" id="f-bundle">Import offline bundle</button></div>`)}
+    ${card("s6","Version distribution",`<div class="chart" id="c-ver"></div>`)}
+    ${card("s12","Offline agents",`<div class="twrap"><table class="tbl"><thead><tr><th>Host</th><th>OU</th><th>Version</th><th>Last seen</th><th>Queue depth</th><th>Action</th></tr></thead><tbody>${hs.filter(h=>!h.agentOk).map(h=>`<tr class="row" data-host="${h.id}"><td class="mono">${h.id}</td><td>${h.ou}</td><td class="mono">${h.agentVer}</td><td class="muted">${ago(h.lastSeen)}</td><td class="num">${ri(200,9000)} events</td><td><span class="pill">wake / check SCM</span></td></tr>`).join("")||`<tr><td colspan="6" class="empty">All agents online</td></tr>`}</tbody></table></div>`)}</div>`;
+  const ag=document.getElementById("ag");ag.innerHTML=hs.map(h=>`<div class="cell" data-h="${h.id}" style="background:${!h.agentOk?"var(--crit)":h.agentVer==="0.4.2"?"var(--good)":h.agentVer==="0.4.1"?"var(--c6)":"var(--c3)"};opacity:.85"></div>`).join("");ag.querySelectorAll(".cell").forEach(c=>{const h=hostById[c.dataset.h];c.onmousemove=e=>showTip(e,`<b>${h.id}</b><br>v${h.agentVer} · ${h.agentOk?"online":"offline "+ago(h.lastSeen)}<br>CPU ${h.cpu}% · RAM ${h.mem} MB`);c.onmouseleave=hideTip;c.onclick=()=>openHost(h.id,"agent")});
+  barChart(document.getElementById("c-ver"),vers.map(([v,n])=>({label:"v"+v,value:n,color:v==="0.4.2"?"var(--good)":v==="0.4.1"?"var(--c6)":"var(--c3)",sub:"agents ·"})),{lw:80});
+  document.getElementById("f-push").onclick=()=>toast("Ring 3 advanced: 0.4.2 pushed to 57 agents (signed bundle verified)");document.getElementById("f-bundle").onclick=()=>toast("Select a .hvb bundle — signature is verified before import");bindRows();
+}
+
+/* ====================== drawer (drill-down) ====================== */
+const drawer=document.getElementById("drawer");
+function openHost(id,tab){S.sel=id;S.selKind="host";if(tab)S.tab=tab;else if(!["summary","alerts","flows","files","software","agent","posture"].includes(S.tab))S.tab="summary";renderDrawer();main.querySelectorAll("tr.sel").forEach(r=>r.classList.remove("sel"));main.querySelectorAll(`tr[data-host="${id}"]`).forEach(r=>r.classList.add("sel"))}
+function openCve(i){S.sel=i;S.selKind="cve";renderDrawer()}
+function closeDrawer(){S.sel=null;drawer.classList.remove("open")}
+function renderDrawer(){
+  if(S.sel===null)return;drawer.classList.add("open");
+  if(S.selKind==="cve"){const c=CVES[S.sel];const hv=hosts.filter(h=>h.vulns.includes(S.sel));drawer.innerHTML=`<header><div><h2 class="mono">${c[0]}</h2><div class="sub">${c[1]} · CVSS ${c[2]}${c[3]?" · CISA KEV":""}</div></div><button id="dcl" aria-label="Close">×</button></header><div class="body"><div class="actions"><button class="btn primary">Create patch task</button><button class="btn">Accept risk</button><button class="btn">Export CSV</button></div><div class="sec"><h4>Affected hosts (${hv.length})</h4><div class="twrap" style="max-height:420px"><table class="tbl"><thead><tr><th>Host</th><th>Tier</th><th>Posture</th><th>Exposed</th></tr></thead><tbody>${hv.map(h=>`<tr class="row" data-host="${h.id}"><td class="mono">${h.id}</td><td><span class="tier"><i style="background:${TIERC[h.tier]}"></i>${h.tier}</span></td><td class="num" style="color:${postureColor(h.posture)}">${h.posture}</td><td>${h.tier==="Web"||h.listening.includes(3389)?'<span class="sev high">reachable</span>':'<span class="muted">internal</span>'}</td></tr>`).join("")}</tbody></table></div></div></div>`;drawer.querySelector("#dcl").onclick=closeDrawer;drawer.querySelectorAll("tr[data-host]").forEach(r=>r.onclick=()=>openHost(r.dataset.host));return}
+  const h=hostById[S.sel];if(!h)return;const al=alerts.filter(a=>a.host===h.id).slice(0,40);const fl=flows.filter(f=>f.src===h.id||f.dst===h.id);const fm=fim.filter(f=>f.host===h.id);
+  const tabs=[["summary","Summary"],["posture","Posture"],["alerts",`Alerts ${al.length}`],["flows",`Flows ${fl.length}`],["files",`Files ${fm.length}`],["software",`Software ${h.soft.length}`],["agent","Agent"]];
+  let body="";
+  if(S.tab==="summary")body=`<div class="actions"><button class="btn primary" id="iso">Isolate host</button><button class="btn" id="rem">Run remediation</button><button class="btn" id="rep">Export report</button></div>
+    <div class="sec"><h4>Identity</h4><dl class="kv"><dt>IP</dt><dd>${h.ip}</dd><dt>OS</dt><dd>${h.os}</dd><dt>OU</dt><dd>${h.ou}</dd><dt>Tier</dt><dd>${h.tier}</dd><dt>Criticality</dt><dd>${h.crit}</dd><dt>Owner</dt><dd>${h.tier==="Workstation"?["j.doe","a.khan","m.rossi"][parseInt(h.id.slice(-3))%3]:"platform-ops"}</dd><dt>Listening</dt><dd>${h.listening.join(", ")}</dd><dt>Local admins</dt><dd style="color:${h.localAdmins>2?"var(--serious)":"inherit"}">${h.localAdmins}</dd><dt>BitLocker</dt><dd>${h.bitlocker?"on":'<span style="color:var(--warn)">off</span>'}</dd><dt>TPM</dt><dd>${h.tpm?"2.0 attested":'<span style="color:var(--warn)">missing</span>'}</dd></dl></div>
+    <div class="sec"><h4>Posture ${h.posture}</h4><div id="d-radar"></div></div>
+    <div class="sec"><h4>Process tree (live)</h4><div class="tree">${procTree(h)}</div></div>
+    <div class="sec"><h4>Drift findings (${h.drift})</h4>${h.drift?`<ul style="margin:0;padding-left:18px;color:var(--fg2)">${DRIFT.slice(0,h.drift).map(d=>`<li>${d}</li>`).join("")}</ul>`:`<div class="muted">No drift from baseline</div>`}</div>`;
+  else if(S.tab==="posture"){const ax=[{l:"Patching",v:Math.max(10,h.posture-h.vulns.length*5)},{l:"Config",v:Math.max(10,100-h.drift*9)},{l:"Identity",v:h.localAdmins>2?48:86},{l:"Encryption",v:h.bitlocker?(h.tpm?95:70):25},{l:"Network",v:Math.max(20,100-h.listening.length*9)},{l:"Allowlist",v:h.allowMode==="Enforce"?92:55}];body=`<div class="sec"><h4>Posture radar</h4><div id="d-radar"></div></div><div class="sec"><h4>Dimensions</h4>${ax.map(a=>`<div style="display:grid;grid-template-columns:90px 1fr 30px;gap:8px;align-items:center;margin-bottom:6px;font-size:12px"><span>${a.l}</span><div class="bar"><i style="width:${a.v}%;background:${postureColor(a.v)}"></i></div><span class="num" style="text-align:right">${a.v}</span></div>`).join("")}</div><div class="sec"><h4>CIS checks failing</h4><ul style="margin:0;padding-left:18px;color:var(--fg2)">${DRIFT.slice(0,Math.max(1,h.drift)).map(d=>`<li>${d}</li>`).join("")}</ul></div><div class="actions"><button class="btn primary" id="rem">Remediate all (rollback snapshot first)</button></div>`}
+  else if(S.tab==="alerts")body=`<div class="timeline">${al.length?al.map(a=>`<div class="ev ${a.sev}"><div><span class="sev ${a.sev}">${a.sev}</span> ${esc(a.rule)}</div><div class="t">${fmtT(a.ts)} · ${a.proc} · ${a.user} · ${ATTACK.find(t=>t[0]===a.tactic)[1]} · ${a.status}</div></div>`).join(""):`<div class="muted">No alerts</div>`}</div>`;
+  else if(S.tab==="flows")body=`<div class="sec"><h4>Outbound (${fl.filter(f=>f.src===h.id).length})</h4>${flowList(fl.filter(f=>f.src===h.id),"dst")}</div><div class="sec"><h4>Inbound (${fl.filter(f=>f.dst===h.id).length})</h4>${flowList(fl.filter(f=>f.dst===h.id),"src")}</div>`;
+  else if(S.tab==="files")body=`<div class="timeline">${fm.length?fm.map(f=>`<div class="ev ${f.cls==="suspicious"?"critical":f.cls==="config"?"medium":""}"><div class="mono" style="font-size:11px">${esc(f.path)}</div><div class="t">${fmtT(f.ts)} · ${f.kind} by ${f.proc} (${f.user}) · <span class="sev ${f.cls==="suspicious"?"critical":f.cls==="config"?"medium":"low"}">${f.cls}</span></div></div>`).join(""):`<div class="muted">No changes in watched paths</div>`}</div>`;
+  else if(S.tab==="software")body=`<div class="sec"><h4>Installed software</h4><table class="tbl"><tbody>${h.soft.map(s=>{const v=h.vulns.map(i=>CVES[i]).filter(c=>c[1].toLowerCase().includes(s.split(" ")[0].toLowerCase()));return`<tr><td>${s}</td><td>${v.length?`<span class="sev ${v[0][2]>=9?"critical":"high"}">${v[0][0]}</span>`:'<span class="muted">—</span>'}</td></tr>`}).join("")}</tbody></table></div><div class="sec"><h4>Vulnerabilities (${h.vulns.length})</h4><table class="tbl"><tbody>${h.vulns.map(i=>`<tr class="row" data-cve="${i}"><td class="mono">${CVES[i][0]}</td><td>${CVES[i][1]}</td><td class="num" style="color:${CVES[i][2]>=9?"var(--crit)":"var(--serious)"}">${CVES[i][2]}</td><td>${CVES[i][3]?'<span class="sev critical">KEV</span>':""}</td></tr>`).join("")||'<tr><td class="muted">None</td></tr>'}</tbody></table></div><div class="sec"><h4>Allowlist</h4><dl class="kv"><dt>Mode</dt><dd>${h.allowMode}</dd><dt>Policy</dt><dd>wdac-${h.tier.toLowerCase()}-v12</dd><dt>Violations 7d</dt><dd>${alerts.filter(a=>a.host===h.id&&a.rule.startsWith("Allowlist")).length}</dd></dl></div>`;
+  else if(S.tab==="agent")body=`<dl class="kv"><dt>Status</dt><dd>${h.agentOk?'<span class="pill ok">online</span>':'<span class="pill bad">offline</span>'}</dd><dt>Version</dt><dd>${h.agentVer}</dd><dt>Last seen</dt><dd>${ago(h.lastSeen)}</dd><dt>Boot id</dt><dd>${h.id.split("-")[1]}f3a9-${h.ip.split(".")[2]}</dd><dt>CPU</dt><dd>${h.cpu}%</dd><dt>RAM</dt><dd>${h.mem} MB</dd><dt>Queue</dt><dd>${h.agentOk?ri(0,40):ri(200,9000)} events buffered</dd><dt>Cert expires</dt><dd>${new Date(NOW+ri(20,80)*DAY).toISOString().slice(0,10)}</dd><dt>Modules</dt><dd>etw ✓ wfp ✓ fim ✓ inventory ✓ allowlist ${h.allowMode==="Enforce"?"✓":"audit"} baseline ✓</dd></dl><div class="actions"><button class="btn">Restart service</button><button class="btn">Rotate certificate</button><button class="btn danger">Revoke</button></div>`;
+  drawer.innerHTML=`<header><div><h2 class="mono">${h.id}</h2><div class="sub">${h.ip} · ${h.os} · ${h.ou}</div><div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><span class="tier"><i style="background:${TIERC[h.tier]}"></i>${h.tier}</span><span class="sev ${h.crit==="Critical"?"critical":h.crit==="High"?"high":h.crit==="Medium"?"medium":"low"}">${h.crit}</span><span class="pill" style="color:${postureColor(h.posture)}">posture ${h.posture}</span>${h.agentOk?"":'<span class="pill bad">agent offline</span>'}</div></div><button id="dcl" aria-label="Close">×</button></header><div class="tabs">${tabs.map(([k,l])=>`<button class="${S.tab===k?"active":""}" data-tab="${k}">${l}</button>`).join("")}</div><div class="body">${body}</div>`;
+  drawer.querySelector("#dcl").onclick=closeDrawer;drawer.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;renderDrawer()});
+  const rd=drawer.querySelector("#d-radar");if(rd)radar(rd,[{l:"Patching",v:Math.max(10,h.posture-h.vulns.length*5)},{l:"Config",v:Math.max(10,100-h.drift*9)},{l:"Identity",v:h.localAdmins>2?48:86},{l:"Encryption",v:h.bitlocker?(h.tpm?95:70):25},{l:"Network",v:Math.max(20,100-h.listening.length*9)},{l:"Allowlist",v:h.allowMode==="Enforce"?92:55}]);
+  drawer.querySelectorAll("tr[data-cve]").forEach(r=>r.onclick=()=>openCve(+r.dataset.cve));drawer.querySelectorAll("[data-host]").forEach(r=>r.onclick=()=>openHost(r.dataset.host));
+  const iso=drawer.querySelector("#iso");if(iso)iso.onclick=()=>toast(`Isolation staged for ${h.id}: WFP block-all except hv-ingest. Needs Enforcer approval.`);const rem=drawer.querySelector("#rem");if(rem)rem.onclick=()=>toast(`Remediation queued on ${h.id}: ${h.drift} drift findings, rollback snapshot first`);const rep=drawer.querySelector("#rep");if(rep)rep.onclick=()=>toast("Host report exported (PDF + JSON) to /exports");
+}
+function procTree(h){const sus=alerts.find(a=>a.host===h.id&&a.sev!=="low");const base=[["System",4,0],["smss.exe",388,1],["wininit.exe",520,1],["services.exe",612,2],["svchost.exe",904,3],["lsass.exe",640,2],["winlogon.exe",580,1],["explorer.exe",3120,2]];if(h.tier==="Web")base.push(["w3wp.exe",4412,3]);if(h.tier==="DB")base.push(["sqlservr.exe",2810,3]);if(sus)base.push([sus.proc,ri(5000,9000),3],["cmd.exe",ri(9000,9900),4]);return base.map(([n,p,d],i)=>`<div class="n ${sus&&i>=base.length-2?"sus":""}" style="padding-left:${d*14+4}px">${d?"└ ":""}${n} <span class="pid">${p}</span>${sus&&i>=base.length-2?' <span class="sev high">alert</span>':""}</div>`).join("")}
+function flowList(fl,side){return fl.length?`<table class="tbl"><tbody>${fl.slice(0,30).map(f=>`<tr class="row" data-host="${f[side]}"><td class="mono">${f[side]}</td><td class="mono muted">${f.proc}</td><td class="mono">:${f.port}</td><td class="num">${fmtB(f.bytes)}</td><td>${suspiciousFlows.has(f.src+">"+f.dst)?'<span class="sev critical">!</span>':""}</td></tr>`).join("")}</tbody></table>`:`<div class="muted">None</div>`}
+
+/* ====================== command palette ====================== */
+const pal=document.getElementById("pal"),palq=document.getElementById("palq"),pallist=document.getElementById("pallist");let palIdx=0,palItems=[];
+function palOpen(){pal.classList.add("open");palq.value="";palSearch("");palq.focus()}function palClose(){pal.classList.remove("open")}
+function palSearch(q){q=q.toLowerCase();const views=VIEWS.map(([v,l])=>({l:"Go to "+l,k:"view",run:()=>go(v)}));const acts=[{l:"Clear all filters",k:"action",run:()=>{for(const k of["ou","tier","os","crit","sev"])S[k].clear();S.q="";persist();render()}},{l:"Show only critical alerts",k:"action",run:()=>{S.sev=new Set(["critical"]);persist();go("forensics")}},{l:"Show suspicious flows only",k:"action",run:()=>{S.mapSus=true;go("map")}},{l:"Import offline feed bundle (.hvb)",k:"action",run:()=>toast("Bundle import: pick a signed .hvb file")},{l:"Export current view as CSV",k:"action",run:()=>toast("CSV exported to /exports")}];
+  const hs=hosts.filter(h=>!q||h.id.includes(q)||h.ip.includes(q)).slice(0,8).map(h=>({l:`${h.id} · ${h.ip} · ${h.tier}`,k:"host",run:()=>openHost(h.id)}));const cv=CVES.map((c,i)=>({c,i})).filter(x=>!q||x.c[0].toLowerCase().includes(q)||x.c[1].toLowerCase().includes(q)).slice(0,5).map(x=>({l:`${x.c[0]} · ${x.c[1]}`,k:"cve",run:()=>openCve(x.i)}));
+  palItems=[...views.filter(v=>!q||v.l.toLowerCase().includes(q)),...acts.filter(a=>!q||a.l.toLowerCase().includes(q)),...hs,...cv].slice(0,14);palIdx=0;
+  pallist.innerHTML=palItems.map((it,i)=>`<div class="it ${i===palIdx?"active":""}" data-i="${i}">${esc(it.l)}<span class="k">${it.k}</span></div>`).join("")||`<div class="it muted">No matches</div>`;pallist.querySelectorAll(".it[data-i]").forEach(e=>e.onclick=()=>{palItems[+e.dataset.i].run();palClose()})}
+palq.oninput=()=>palSearch(palq.value);palq.onkeydown=e=>{if(e.key==="ArrowDown"){palIdx=Math.min(palItems.length-1,palIdx+1)}else if(e.key==="ArrowUp"){palIdx=Math.max(0,palIdx-1)}else if(e.key==="Enter"){if(palItems[palIdx]){palItems[palIdx].run();palClose()}return}else if(e.key==="Escape"){palClose();return}else return;pallist.querySelectorAll(".it").forEach((el,i)=>el.classList.toggle("active",i===palIdx))};
+pal.onclick=e=>{if(e.target===pal)palClose()};
+addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();pal.classList.contains("open")?palClose():palOpen()}else if(e.key==="Escape"){if(pal.classList.contains("open"))palClose();else if(S.sel!==null)closeDrawer()}});
+let rt;addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(renderMain,200)});
+render();
+</script>

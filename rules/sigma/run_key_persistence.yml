@@ -1,0 +1,11 @@
+id: hv-0004
+title: Registry Run key modified by non-installer
+level: medium
+tags: [attack.persistence, attack.t1547.001]
+logsource: {category: registry_set, product: windows}
+detection:
+  selection:
+    TargetObject|contains: '\CurrentVersion\Run'
+  filter:
+    Image|endswith: ['\msiexec.exe', '\TrustedInstaller.exe', '\svchost.exe']
+  condition: selection and not filter
