@@ -57,6 +57,9 @@ jobs:
   supply-chain:
     name: Dependency audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

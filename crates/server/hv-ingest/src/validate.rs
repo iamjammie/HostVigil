@@ -65,7 +65,8 @@ pub fn validate_batch(
 ) -> (Vec<Event>, Vec<(u64, Violation)>) {
     let mut ok = Vec::with_capacity(b.events.len());
     let mut bad = Vec::new();
-    if b.events.len() > MAX_BATCH_EVENTS {
+    let encoded: usize = b.events.iter().map(prost::Message::encoded_len).sum();
+    if b.events.len() > MAX_BATCH_EVENTS || encoded > MAX_BATCH_BYTES {
         bad.push((
             0,
             Violation::BatchTooLarge {
