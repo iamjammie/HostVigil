@@ -61,12 +61,12 @@ impl Ca {
     }
 
     async fn issue(&self, csr_der: &[u8], host_id: &str) -> Result<Vec<u8>> {
-        let mut csr = CertificateSigningRequestParams::from_der(&csr_der.into())?;
+        let csr_der_owned: rcgen::CertificateSigningRequestDer<'static> = csr_der.to_vec().into();
+        let mut csr = CertificateSigningRequestParams::from_der(&csr_der_owned)?;
         csr.params.distinguished_name = rcgen::DistinguishedName::new();
         csr.params
             .distinguished_name
             .push(DnType::CommonName, host_id);
-        csr.params.not_after = rcgen::date_time_ymd(2100, 1, 1); // rotated every 90 days by policy below
         csr.params.not_after = time_in_days(90);
         csr.params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
         csr.params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ClientAuth];
@@ -83,8 +83,8 @@ impl Ca {
     }
 }
 
-fn time_in_days(d: i64) -> rcgen::OffsetDateTime {
-    rcgen::OffsetDateTime::now_utc() + rcgen::Duration::days(d)
+fn time_in_days(d: i64) -> time::OffsetDateTime {
+    time::OffsetDateTime::now_utc() + time::Duration::days(d)
 }
 
 #[tonic::async_trait]
@@ -129,10 +129,10 @@ impl Enrolment for Ca {
     }
     async fn renew(&self, req: Request<RenewRequest>) -> Result<Response<EnrolResponse>, Status> {
         // Renewal is authenticated by the existing client cert (mTLS); CN = host_id.
-        let cn = req
-            .peer_certs()
-            .and_then(|c| c.first().map(|c| c.as_ref().to_vec()))
-            .and_then(|der| {
+        let cn: String = {
+            let certs = req.peer_certs();
+            let der: Option<Vec<u8>> = certs.and_then(|c| c.first().map(|c| c.as_ref().to_vec()));
+            der.and_then(|der| {
                 x509_parser::parse_x509_certificate(&der)
                     .ok()
                     .and_then(|(_, c)| {
@@ -142,7 +142,8 @@ impl Enrolment for Ca {
                             .and_then(|a| a.as_str().ok().map(String::from))
                     })
             })
-            .ok_or_else(|| Status::unauthenticated("client certificate required"))?;
+            .ok_or_else(|| Status::unauthenticated("client certificate required"))?
+        };
         let cert = self
             .issue(&req.into_inner().csr_der, &cn)
             .await

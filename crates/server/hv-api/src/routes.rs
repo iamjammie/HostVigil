@@ -191,15 +191,26 @@ pub async fn host(State(app): State<App>, Path(id): Path<String>) -> R {
     h.map(Json).ok_or(StatusCode::NOT_FOUND)
 }
 
+/// Run a ClickHouse query over its HTTP interface and return JSONEachRow rows.
+/// (The `clickhouse` crate needs a `Row` struct per query; the HUD's ad-hoc
+/// aggregations are simpler over HTTP.)
 async fn ch_json(app: &App, sql: &str) -> Result<Value, StatusCode> {
+    let url =
+        std::env::var("HV_CLICKHOUSE_URL").unwrap_or_else(|_| "http://clickhouse:8123".into());
     let body = app
-        .ch
-        .query(&format!("{sql} FORMAT JSONEachRow"))
-        .fetch_all::<String>()
+        .http
+        .post(format!("{url}/?database=hostvigil"))
+        .body(format!("{sql} FORMAT JSONEachRow"))
+        .send()
+        .await
+        .map_err(ise)?
+        .error_for_status()
+        .map_err(ise)?
+        .text()
         .await
         .map_err(ise)?;
     Ok(Value::Array(
-        body.iter()
+        body.lines()
             .filter_map(|l| serde_json::from_str(l).ok())
             .collect(),
     ))
@@ -255,7 +266,8 @@ pub async fn flow_graph(State(app): State<App>, Query(f): Query<Filters>) -> R {
     let edges = ch_json(&app, &format!("SELECT src_host, dst_host, image, dst_port, sum(bytes) bytes, sum(c) c FROM flow_edges_hourly WHERE hour >= toDateTime({}/1000) GROUP BY ALL", f.since_ms())).await?;
     let mut binds = vec![];
     let w = f.host_where(&mut binds);
-    let mut q = sqlx::query_scalar::<_, Value>(&format!("SELECT jsonb_agg(jsonb_build_object('id',h.host_id,'tier',h.tier,'ou',h.ou,'posture',h.posture,'online',h.online)) FROM hosts h WHERE {w}"));
+    let sql = format!("SELECT jsonb_agg(jsonb_build_object('id',h.host_id,'tier',h.tier,'ou',h.ou,'posture',h.posture,'online',h.online)) FROM hosts h WHERE {w}");
+    let mut q = sqlx::query_scalar::<_, Value>(&sql);
     for b in &binds {
         q = q.bind(b);
     }
@@ -312,14 +324,15 @@ pub async fn overview(State(app): State<App>, Query(f): Query<Filters>) -> R {
     validate_filters(&f).map_err(bad)?;
     let mut binds = vec![];
     let w = f.host_where(&mut binds);
-    let mut q = sqlx::query_scalar::<_, Value>(&format!("SELECT jsonb_build_object(
+    let sql = format!("SELECT jsonb_build_object(
         'hosts', COUNT(*), 'avg_posture', ROUND(AVG(h.posture)), 'offline', COUNT(*) FILTER (WHERE NOT h.online), 'audit_mode', COUNT(*) FILTER (WHERE h.allow_mode='Audit'),
         'drift', (SELECT COUNT(*) FROM drift_findings d JOIN hosts hh USING(host_id) WHERE NOT d.resolved),
         'open_alerts', (SELECT COUNT(*) FROM alerts a WHERE a.status='open'), 'critical_alerts', (SELECT COUNT(*) FROM alerts a WHERE a.status='open' AND a.severity='critical'),
         'critical_cves', (SELECT COUNT(DISTINCT v.cve) FROM host_vulns v JOIN vulnerabilities c USING(cve) WHERE c.cvss >= 9), 'kev', (SELECT COUNT(*) FROM host_vulns v JOIN vulnerabilities c USING(cve) WHERE c.kev),
         'by_ou', (SELECT jsonb_object_agg(ou, p) FROM (SELECT ou, ROUND(AVG(posture)) p FROM hosts GROUP BY ou) x),
         'by_tier', (SELECT jsonb_object_agg(tier, n) FROM (SELECT tier, COUNT(*) n FROM hosts GROUP BY tier) x),
-        'posture_hist', (SELECT jsonb_agg(posture ORDER BY posture) FROM hosts)) FROM hosts h WHERE {w}"));
+        'posture_hist', (SELECT jsonb_agg(posture ORDER BY posture) FROM hosts)) FROM hosts h WHERE {w}");
+    let mut q = sqlx::query_scalar::<_, Value>(&sql);
     for b in &binds {
         q = q.bind(b);
     }
@@ -498,7 +511,7 @@ pub async fn feeds_import(
     audit(&app, &c.sub, "feeds.import", &id).await;
     Ok(Json(json!({"id": id, "status": "pending verification"})))
 }
-pub async fn audit(State(app): State<App>) -> R {
+pub async fn audit_log(State(app): State<App>) -> R {
     let rows: Vec<Value> =
         sqlx::query_scalar("SELECT to_jsonb(a) FROM audit_log a ORDER BY ts DESC LIMIT 1000")
             .fetch_all(&app.pg)
@@ -520,7 +533,12 @@ async fn ws_loop(mut sock: WebSocket, app: App) {
 pub async fn hud_static(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
-    match HudAssets::get(path).or_else(|| HudAssets::get("index.html")) {
+    let path = if path == "index.html" {
+        "hostvigil-hud.html"
+    } else {
+        path
+    };
+    match HudAssets::get(path).or_else(|| HudAssets::get("hostvigil-hud.html")) {
         Some(f) => {
             let mime = mime_guess(path);
             ([(header::CONTENT_TYPE, mime)], f.data.into_owned()).into_response()

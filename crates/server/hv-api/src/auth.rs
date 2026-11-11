@@ -7,7 +7,6 @@ use argon2::{
     Argon2,
 };
 use axum::{
-    body::Body,
     extract::{Request, State},
     http::{header, StatusCode},
     middleware::Next,
@@ -113,36 +112,37 @@ pub async fn jwt_middleware(
     Ok(next.run(req).await)
 }
 
-/// Route layer requiring at least `min_role`.
-pub fn require(
+/// Role gates. Use as `axum::middleware::from_fn(auth::require_enforcer)`.
+async fn require_role(
+    req: Request,
+    next: Next,
     min_role: &'static str,
-) -> axum::middleware::FromFnLayer<
-    impl Fn(
-            Request<Body>,
-            Next,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<Response, StatusCode>> + Send>,
-        > + Clone,
-    (),
-    (Request<Body>, Next),
-> {
-    axum::middleware::from_fn(move |req: Request<Body>, next: Next| {
-        Box::pin(async move {
-            let claims = req
-                .extensions()
-                .get::<Claims>()
-                .ok_or(StatusCode::UNAUTHORIZED)?;
-            let have = ROLES.iter().position(|r| *r == claims.role).unwrap_or(0);
-            let need = ROLES
-                .iter()
-                .position(|r| *r == min_role)
-                .unwrap_or(usize::MAX);
-            if have < need {
-                return Err(StatusCode::FORBIDDEN);
-            }
-            Ok(next.run(req).await)
-        }) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send>>
-    })
+) -> Result<Response, StatusCode> {
+    let claims = req
+        .extensions()
+        .get::<Claims>()
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let have = ROLES.iter().position(|r| *r == claims.role).unwrap_or(0);
+    let need = ROLES
+        .iter()
+        .position(|r| *r == min_role)
+        .unwrap_or(usize::MAX);
+    if have < need {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(next.run(req).await)
+}
+pub async fn require_analyst(req: Request, next: Next) -> Result<Response, StatusCode> {
+    require_role(req, next, "analyst").await
+}
+pub async fn require_policy_author(req: Request, next: Next) -> Result<Response, StatusCode> {
+    require_role(req, next, "policy_author").await
+}
+pub async fn require_enforcer(req: Request, next: Next) -> Result<Response, StatusCode> {
+    require_role(req, next, "enforcer").await
+}
+pub async fn require_admin(req: Request, next: Next) -> Result<Response, StatusCode> {
+    require_role(req, next, "admin").await
 }
 
 pub async fn audit(app: &App, actor: &str, action: &str, detail: &str) {

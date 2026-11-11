@@ -21,4 +21,4 @@ config.workspace = true
 petgraph.workspace = true
 clickhouse.workspace = true
 sqlx.workspace = true
-serde_yaml = "0.9"
+serde_yaml_ng = "0.10"

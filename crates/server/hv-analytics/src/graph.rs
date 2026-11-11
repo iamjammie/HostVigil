@@ -17,7 +17,16 @@ pub async fn rebuild(ctx: Ctx) -> Result<()> {
         .collect();
 
     // Flow edges from the last hour of raw events -> flow_edges_hourly
-    let rows = ctx.ch.query("SELECT host_id, image, dst_ip, dst_port, sum(bytes_in+bytes_out) b, count() c FROM events WHERE kind='flow' AND direction=0 AND ts_wall_ms >= toUnixTimestamp64Milli(now64()) - 3600000 GROUP BY ALL").fetch_all::<(String, String, String, u32, u64, u64)>().await?;
+    #[derive(clickhouse::Row, serde::Deserialize)]
+    struct Fl {
+        host_id: String,
+        image: String,
+        dst_ip: String,
+        dst_port: u32,
+        b: u64,
+        c: u64,
+    }
+    let rows = ctx.ch.query("SELECT host_id, image, dst_ip, dst_port, sum(bytes_in+bytes_out) b, count() c FROM events WHERE kind='flow' AND direction=0 AND ts_wall_ms >= toUnixTimestamp64Milli(now64()) - 3600000 GROUP BY ALL").fetch_all::<Fl>().await?;
     let tier_of: HashMap<&str, &str> = hosts
         .iter()
         .map(|(h, _, t)| (h.as_str(), t.as_deref().unwrap_or("Unknown")))
@@ -26,7 +35,15 @@ pub async fn rebuild(ctx: Ctx) -> Result<()> {
     let hour = chrono::Utc::now().timestamp() as u32 / 3600 * 3600;
     let mut g = DiGraph::<String, u64>::new();
     let mut idx = HashMap::new();
-    for (src, image, dst_ip, port, bytes, c) in rows {
+    for Fl {
+        host_id: src,
+        image,
+        dst_ip,
+        dst_port: port,
+        b: bytes,
+        c,
+    } in rows
+    {
         let Some(dst) = ip_to_host.get(&dst_ip) else {
             continue;
         };

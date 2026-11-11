@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
 #[derive(RustEmbed)]
-#[folder = "../../../hud/dist/"]
+#[folder = "../../../hud/standalone/"]
 pub struct HudAssets;
 
 #[derive(Clone)]
@@ -26,6 +26,7 @@ pub struct App {
     pub ch: Ch,
     pub jwt_secret: Arc<String>,
     pub bus: tokio::sync::broadcast::Sender<String>,
+    pub http: reqwest::Client,
 }
 
 #[tokio::main]
@@ -52,6 +53,7 @@ async fn main() -> Result<()> {
             std::env::var("HV_JWT_SECRET").unwrap_or_else(|_| uuid::Uuid::new_v4().to_string()),
         ),
         bus,
+        http: reqwest::Client::new(),
     };
     auth::ensure_bootstrap_admin(&app).await?;
 
@@ -67,18 +69,18 @@ async fn main() -> Result<()> {
         .route("/hosts/:id/process-tree", get(routes::host_process_tree))
         .route(
             "/hosts/:id/isolate",
-            post(routes::isolate).layer(auth::require("enforcer")),
+            post(routes::isolate).layer(axum::middleware::from_fn(auth::require_enforcer)),
         )
         .route(
             "/hosts/:id/remediate",
-            post(routes::remediate).layer(auth::require("enforcer")),
+            post(routes::remediate).layer(axum::middleware::from_fn(auth::require_enforcer)),
         )
         .route("/flows/graph", get(routes::flow_graph))
         .route("/flows", get(routes::flows))
         .route("/alerts", get(routes::alerts))
         .route(
             "/alerts/:id/ack",
-            post(routes::ack_alert).layer(auth::require("analyst")),
+            post(routes::ack_alert).layer(axum::middleware::from_fn(auth::require_analyst)),
         )
         .route("/vulns", get(routes::vulns))
         .route("/vulns/matrix", get(routes::vuln_matrix))
@@ -86,31 +88,37 @@ async fn main() -> Result<()> {
         .route("/allowlist/queue", get(routes::allow_queue))
         .route(
             "/allowlist/decide",
-            post(routes::allow_decide).layer(auth::require("policy_author")),
+            post(routes::allow_decide)
+                .layer(axum::middleware::from_fn(auth::require_policy_author)),
         )
         .route("/policy", get(routes::policy_get))
         .route(
             "/policy/simulate",
-            post(routes::policy_simulate).layer(auth::require("policy_author")),
+            post(routes::policy_simulate)
+                .layer(axum::middleware::from_fn(auth::require_policy_author)),
         )
         .route(
             "/policy/stage",
-            post(routes::policy_stage).layer(auth::require("policy_author")),
+            post(routes::policy_stage)
+                .layer(axum::middleware::from_fn(auth::require_policy_author)),
         )
         .route(
             "/policy/enforce",
-            post(routes::policy_enforce).layer(auth::require("enforcer")),
+            post(routes::policy_enforce).layer(axum::middleware::from_fn(auth::require_enforcer)),
         )
         .route("/fleet", get(routes::fleet))
         .route(
             "/fleet/update",
-            post(routes::fleet_update).layer(auth::require("admin")),
+            post(routes::fleet_update).layer(axum::middleware::from_fn(auth::require_admin)),
         )
         .route(
             "/feeds/import",
-            post(routes::feeds_import).layer(auth::require("admin")),
+            post(routes::feeds_import).layer(axum::middleware::from_fn(auth::require_admin)),
         )
-        .route("/audit", get(routes::audit).layer(auth::require("admin")))
+        .route(
+            "/audit",
+            get(routes::audit_log).layer(axum::middleware::from_fn(auth::require_admin)),
+        )
         .route("/ws", get(routes::ws))
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),
