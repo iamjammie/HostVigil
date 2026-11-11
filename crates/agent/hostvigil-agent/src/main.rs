@@ -5,6 +5,8 @@
 //! publish `Event`s onto a bounded channel; the transport task drains it,
 //! persists to the SQLite ring buffer, and streams to the server over mTLS.
 
+#![cfg_attr(not(windows), allow(dead_code))]
+
 mod config;
 mod modules;
 mod ring;

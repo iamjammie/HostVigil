@@ -20,7 +20,6 @@ clap.workspace = true
 config.workspace = true
 tonic.workspace = true
 prost.workspace = true
-rustls.workspace = true
 clickhouse.workspace = true
 sqlx.workspace = true
 flume.workspace = true
