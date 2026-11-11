@@ -5,11 +5,11 @@
 
 use crate::{config::AgentConfig, modules::health::BASELINE, supervisor::EventTx};
 use anyhow::Result;
+use hv_proto::{event::Body, DriftFinding};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
-use hv_proto::{event::Body, DriftFinding};
 
 #[derive(Debug, Serialize)]
 pub struct Baseline {

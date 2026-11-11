@@ -3,8 +3,8 @@
 
 use crate::config::AgentConfig;
 use crate::modules::{allowlist, wfp};
-use prost::Message;
 use hv_proto::{command::Body, Command, CommandResult};
+use prost::Message;
 
 pub async fn handle(cfg: &AgentConfig, cmd: Command) -> CommandResult {
     let id = cmd.command_id.clone();

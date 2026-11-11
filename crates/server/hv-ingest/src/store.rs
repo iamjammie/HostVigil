@@ -2,11 +2,11 @@
 
 use anyhow::Result;
 use clickhouse::{Client, Row};
-use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use hv_proto::{
     event::Body, BaselineSnapshot, CommandResult, Event, Heartbeat, Hello, InventorySnapshot,
 };
+use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {

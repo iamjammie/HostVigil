@@ -13,10 +13,10 @@ use crate::{
     supervisor::EventTx,
 };
 use anyhow::Result;
+use hv_proto::{event::Body, file_change::Kind, FileChange};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use hv_proto::{event::Body, file_change::Kind, FileChange};
 
 pub async fn run(cfg: Arc<AgentConfig>, tx: EventTx) -> Result<()> {
     let watches = if cfg.fim.is_empty() {

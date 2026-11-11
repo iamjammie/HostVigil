@@ -6,8 +6,8 @@
 
 use crate::{config::AgentConfig, modules::health::ALLOWLIST, supervisor::EventTx};
 use anyhow::Result;
-use std::sync::Arc;
 use hv_proto::{allowlist_event::Verdict, event::Body, AllowlistEvent, AllowlistPolicy};
+use std::sync::Arc;
 
 pub async fn run(_cfg: Arc<AgentConfig>, tx: EventTx) -> Result<()> {
     #[cfg(windows)]

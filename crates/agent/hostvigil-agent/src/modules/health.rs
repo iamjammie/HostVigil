@@ -1,8 +1,8 @@
 //! Per-module counters reported in every heartbeat.
+use hv_proto::ModuleHealth;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use hv_proto::ModuleHealth;
 
 pub struct Counter {
     pub emitted: AtomicU64,

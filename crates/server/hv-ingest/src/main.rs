@@ -6,6 +6,11 @@ mod store;
 mod validate;
 
 use anyhow::Result;
+use hv_proto::{
+    agent_message, server_message,
+    telemetry_server::{Telemetry, TelemetryServer},
+    Ack, AgentMessage, ServerMessage,
+};
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 use tokio::sync::{mpsc, RwLock};
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
@@ -14,11 +19,6 @@ use tonic::{
     Request, Response, Status, Streaming,
 };
 use tracing::{info, warn};
-use hv_proto::{
-    agent_message, server_message,
-    telemetry_server::{Telemetry, TelemetryServer},
-    Ack, AgentMessage, ServerMessage,
-};
 
 /// Connected agents, keyed by host_id, so hv-policy can push commands.
 pub type Fleet = Arc<RwLock<HashMap<String, mpsc::Sender<ServerMessage>>>>;

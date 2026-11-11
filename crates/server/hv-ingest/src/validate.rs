@@ -13,8 +13,8 @@
 //! - strings: paths ≤ 4096, command lines / script blocks ≤ 64 KiB, others ≤ 1024
 //! - batches: ≤ 5 000 events and ≤ 16 MiB decoded per message
 
-use std::net::IpAddr;
 use hv_proto::{event::Body, Event, EventBatch};
+use std::net::IpAddr;
 
 pub const MAX_BATCH_EVENTS: usize = 5_000;
 pub const MAX_BATCH_BYTES: usize = 16 << 20;
