@@ -28,7 +28,7 @@ pub struct LogSource {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Detection {
     #[serde(flatten)]
-    pub blocks: HashMap<String, serde_yaml::Value>,
+    pub blocks: HashMap<String, serde_yaml_ng::Value>,
     pub condition: String,
 }
 
@@ -37,7 +37,7 @@ pub fn load_rules(dir: &Path) -> Result<Arc<Vec<Rule>>> {
     if let Ok(rd) = std::fs::read_dir(dir.join("sigma")) {
         for e in rd.flatten() {
             if e.path().extension().map(|x| x == "yml").unwrap_or(false) {
-                match serde_yaml::from_str::<Rule>(&std::fs::read_to_string(e.path())?) {
+                match serde_yaml_ng::from_str::<Rule>(&std::fs::read_to_string(e.path())?) {
                     Ok(r) => out.push(r),
                     Err(err) => tracing::warn!(file = %e.path().display(), %err, "bad sigma rule"),
                 }
@@ -49,7 +49,7 @@ pub fn load_rules(dir: &Path) -> Result<Arc<Vec<Rule>>> {
 
 /// Field names: Image, ParentImage, CommandLine, User, TargetObject, Details, ScriptBlockText, LogonType, SourceIp, DestinationPort.
 pub fn matches(rule: &Rule, ev: &HashMap<String, String>) -> bool {
-    let eval_block = |v: &serde_yaml::Value| -> bool {
+    let eval_block = |v: &serde_yaml_ng::Value| -> bool {
         let Some(m) = v.as_mapping() else {
             return false;
         };
@@ -61,7 +61,7 @@ pub fn matches(rule: &Rule, ev: &HashMap<String, String>) -> bool {
             };
             let a = actual.to_ascii_lowercase();
             let candidates: Vec<String> = match val {
-                serde_yaml::Value::Sequence(s) => s
+                serde_yaml_ng::Value::Sequence(s) => s
                     .iter()
                     .filter_map(|x| x.as_str().map(|s| s.to_ascii_lowercase()))
                     .collect(),
@@ -129,9 +129,40 @@ pub fn matches(rule: &Rule, ev: &HashMap<String, String>) -> bool {
 }
 
 pub async fn evaluate_recent(ctx: Ctx, rules: Arc<Vec<Rule>>) -> Result<()> {
-    let rows = ctx.ch.query("SELECT host_id, ts_wall_ms, kind, pid, image, user, detail, path, src_ip, dst_port, extra FROM events WHERE kind IN ('process','registry','logon','script') AND ts_recv_ms >= toUnixTimestamp64Milli(now64()) - 25000").fetch_all::<(String, u64, String, u32, String, String, String, String, String, u32, String)>().await?;
+    #[derive(clickhouse::Row, serde::Deserialize)]
+    struct Ev {
+        host_id: String,
+        ts_wall_ms: u64,
+        kind: String,
+        pid: u32,
+        image: String,
+        user: String,
+        detail: String,
+        path: String,
+        src_ip: String,
+        dst_port: u32,
+        extra: String,
+    }
+    let rows = ctx
+        .ch
+        .query("SELECT host_id, ts_wall_ms, kind, pid, image, user, detail, path, src_ip, dst_port, extra FROM events WHERE kind IN ('process','registry','logon','script') AND ts_recv_ms >= toUnixTimestamp64Milli(now64()) - 25000")
+        .fetch_all::<Ev>()
+        .await?;
     let mut n = 0;
-    for (host, ts, kind, pid, image, user, detail, path, src_ip, dst_port, extra) in rows {
+    for Ev {
+        host_id: host,
+        ts_wall_ms: ts,
+        kind,
+        pid,
+        image,
+        user,
+        detail,
+        path,
+        src_ip,
+        dst_port,
+        extra,
+    } in rows
+    {
         let parent = serde_json::from_str::<serde_json::Value>(&extra)
             .ok()
             .and_then(|v| v["parent"].as_str().map(String::from))
@@ -191,7 +222,7 @@ mod tests {
     use super::*;
     #[test]
     fn encoded_powershell_rule() {
-        let r: Rule = serde_yaml::from_str(
+        let r: Rule = serde_yaml_ng::from_str(
             r#"
 id: t1
 title: Encoded PowerShell
