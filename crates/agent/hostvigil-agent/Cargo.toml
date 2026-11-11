@@ -1,0 +1,61 @@
+[package]
+name = "hostvigil-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "HostVigil endpoint agent for Windows 10/11 and Windows Server 2016-2025"
+
+[[bin]]
+name = "hostvigil-agent"
+path = "src/main.rs"
+
+[dependencies]
+hv-common.workspace = true
+hv-proto.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+prost.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+rustls.workspace = true
+rcgen.workspace = true
+rusqlite.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+clap.workspace = true
+config.workspace = true
+flume.workspace = true
+tokio-stream = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+ferrisetw = "1.2"
+wmi = "0.14"
+winreg = "0.52"
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_System_Threading",
+  "Win32_System_Services",
+  "Win32_System_EventLog",
+  "Win32_System_Diagnostics_Etw",
+  "Win32_NetworkManagement_WindowsFilteringPlatform",
+  "Win32_Networking_WinSock",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Ioctl",
+  "Win32_System_IO",
+  "Win32_Security",
+  "Win32_Security_Cryptography",
+  "Win32_Security_WinTrust",
+  "Win32_System_Registry",
+  "Win32_System_SystemInformation",
+] }
+
+[package.metadata.wix]
+upgrade-guid = "5F6E2D44-1B9C-4C7A-9C2E-A1B2C3D4E5F6"
+path-guid = "A3C1E0F2-7D55-4B0A-8E33-F6E5D4C3B2A1"

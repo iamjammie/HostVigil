@@ -1,0 +1,258 @@
+syntax = "proto3";
+package hostvigil.v1;
+
+// ------------------------------------------------------------------
+// HostVigil agent <-> server contract. Shared by hv-proto (Rust) and
+// the HUD's generated TypeScript types. Keep field numbers stable.
+// ------------------------------------------------------------------
+
+service Telemetry {
+  // Long-lived bidirectional stream: agent pushes EventBatch, server
+  // pushes Command (policy, allowlist, remediation, update, config).
+  rpc Stream(stream AgentMessage) returns (stream ServerMessage);
+}
+
+service Enrolment {
+  rpc Enrol(EnrolRequest) returns (EnrolResponse);
+  rpc Renew(RenewRequest) returns (EnrolResponse);
+}
+
+message AgentMessage {
+  oneof body {
+    Hello hello = 1;
+    EventBatch events = 2;
+    Heartbeat heartbeat = 3;
+    CommandResult result = 4;
+    InventorySnapshot inventory = 5;
+    BaselineSnapshot baseline = 6;
+  }
+}
+
+message ServerMessage {
+  oneof body {
+    Ack ack = 1;
+    Command command = 2;
+    Config config = 3;
+  }
+}
+
+message Hello {
+  string host_id = 1;
+  string boot_id = 2;
+  string agent_version = 3;
+  string hostname = 4;
+  string os_version = 5;      // "Windows Server 2022 21H2 (20348.2227)"
+  repeated string ips = 6;
+  uint64 last_acked_seq = 7;  // for replay after reconnect
+}
+
+message Heartbeat {
+  uint64 ts_wall_ms = 1;
+  uint32 queue_depth = 2;
+  float cpu_pct = 3;
+  uint32 mem_mb = 4;
+  map<string, ModuleHealth> modules = 5;
+}
+
+message ModuleHealth { bool running = 1; uint64 events_emitted = 2; uint64 events_dropped = 3; string last_error = 4; }
+
+message Ack { uint64 up_to_seq = 1; }
+
+message EventBatch { repeated Event events = 1; }
+
+message Event {
+  string host_id = 1;
+  string boot_id = 2;
+  uint64 seq = 3;            // monotonic per boot; gaps are detectable
+  uint64 ts_mono_ns = 4;     // QueryPerformanceCounter based
+  uint64 ts_wall_ms = 5;
+  oneof body {
+    ProcessEvent process = 10;
+    NetworkFlow flow = 11;
+    FileChange file = 12;
+    RegistryEvent registry = 13;
+    LogonEvent logon = 14;
+    ScriptBlock script = 15;
+    ImageLoad image = 16;
+    AllowlistEvent allowlist = 17;
+    PolicyHit policy_hit = 18;
+    DriftFinding drift = 19;
+  }
+}
+
+message ProcessEvent {
+  enum Kind { CREATE = 0; EXIT = 1; }
+  Kind kind = 1;
+  uint32 pid = 2;
+  uint32 ppid = 3;
+  string image = 4;
+  string command_line = 5;
+  string user = 6;
+  string sha256 = 7;
+  string signer = 8;          // Authenticode subject, empty if unsigned
+  bool signature_valid = 9;
+  uint32 session_id = 10;
+  string parent_image = 11;
+  uint32 exit_code = 12;
+}
+
+message NetworkFlow {
+  enum Direction { OUTBOUND = 0; INBOUND = 1; }
+  Direction direction = 1;
+  string protocol = 2;        // tcp | udp
+  string local_ip = 3;
+  uint32 local_port = 4;
+  string remote_ip = 5;
+  uint32 remote_port = 6;
+  uint32 pid = 7;
+  string image = 8;
+  string user = 9;
+  uint64 bytes_out = 10;
+  uint64 bytes_in = 11;
+  uint64 duration_ms = 12;
+  bool blocked_by_policy = 13;
+  string policy_id = 14;
+}
+
+message FileChange {
+  enum Kind { CREATED = 0; MODIFIED = 1; DELETED = 2; RENAMED = 3; ACL_CHANGED = 4; }
+  Kind kind = 1;
+  string path = 2;
+  string old_path = 3;
+  string sha256_before = 4;
+  string sha256_after = 5;
+  uint64 size = 6;
+  string owner = 7;
+  string acl_sddl = 8;
+  uint32 pid = 9;             // process that made the change, if known
+  string image = 10;
+  string user = 11;
+  string signer = 12;
+  uint64 usn = 13;
+}
+
+message RegistryEvent {
+  enum Kind { SET_VALUE = 0; DELETE_VALUE = 1; CREATE_KEY = 2; DELETE_KEY = 3; }
+  Kind kind = 1;
+  string key = 2;
+  string value_name = 3;
+  string value_data = 4;
+  uint32 pid = 5;
+  string image = 6;
+  string user = 7;
+}
+
+message LogonEvent {
+  uint32 logon_type = 1;      // 2 interactive, 3 network, 10 RDP ...
+  string user = 2;
+  string domain = 3;
+  string source_ip = 4;
+  bool success = 5;
+  string auth_package = 6;    // Kerberos | NTLM
+  uint32 event_id = 7;        // 4624/4625/4648/4672...
+}
+
+message ScriptBlock { string engine = 1; string text = 2; string sha256 = 3; uint32 pid = 4; string user = 5; }
+message ImageLoad { uint32 pid = 1; string image = 2; string loaded = 3; string sha256 = 4; string signer = 5; bool signature_valid = 6; }
+
+message AllowlistEvent {
+  enum Verdict { AUDIT_WOULD_BLOCK = 0; BLOCKED = 1; ALLOWED = 2; }
+  Verdict verdict = 1;
+  string path = 2;
+  string sha256 = 3;
+  string publisher = 4;
+  string policy_id = 5;
+  uint32 pid = 6;
+  string user = 7;
+}
+
+message PolicyHit { string policy_id = 1; string rule_id = 2; bool dropped = 3; NetworkFlow flow = 4; }
+
+message DriftFinding {
+  string check_id = 1;        // cis-18.9.x, hv-rdp-nla ...
+  string title = 2;
+  string expected = 3;
+  string actual = 4;
+  string severity = 5;        // low | medium | high | critical
+  bool resolved = 6;
+}
+
+message InventorySnapshot {
+  uint64 ts_wall_ms = 1;
+  HostFacts facts = 2;
+  repeated Software software = 3;
+  repeated Service services = 4;
+  repeated ScheduledTask tasks = 5;
+  repeated LocalAccount accounts = 6;
+  repeated ListeningPort listening = 7;
+  repeated Certificate certificates = 8;
+  repeated Hotfix hotfixes = 9;
+}
+
+message HostFacts {
+  string hostname = 1; string domain = 2; string ou = 3; string os_version = 4; string build = 5;
+  string manufacturer = 6; string model = 7; string serial = 8; string bios_version = 9;
+  bool tpm_present = 10; string tpm_version = 11; bool secure_boot = 12;
+  repeated string bitlocker_volumes = 13; repeated string unencrypted_volumes = 14;
+  uint32 cpu_cores = 15; uint64 ram_mb = 16; repeated string ips = 17; repeated string macs = 18;
+  bool rdp_enabled = 19; bool rdp_nla = 20; bool smb1_enabled = 21; bool defender_enabled = 22;
+  bool laps_applied = 23; bool lsa_ppl = 24; string firewall_profiles = 25; // "domain:on,private:on,public:off"
+}
+message Software { string name = 1; string version = 2; string publisher = 3; string install_date = 4; string source = 5; /* msi | registry | store | portable */ string path = 6; }
+message Service { string name = 1; string display = 2; string path = 3; string start_type = 4; string account = 5; string state = 6; bool unquoted_path = 7; string signer = 8; }
+message ScheduledTask { string name = 1; string path = 2; string action = 3; string run_as = 4; string trigger = 5; bool enabled = 6; string author = 7; }
+message LocalAccount { string name = 1; bool enabled = 2; bool admin = 3; string last_logon = 4; bool password_never_expires = 5; }
+message ListeningPort { string protocol = 1; uint32 port = 2; uint32 pid = 3; string image = 4; string bind = 5; }
+message Certificate { string store = 1; string subject = 2; string issuer = 3; string thumbprint = 4; string not_after = 5; bool has_private_key = 6; }
+message Hotfix { string kb = 1; string installed_on = 2; string description = 3; }
+
+message BaselineSnapshot { uint64 ts_wall_ms = 1; string sha256 = 2; bytes canonical_json_zstd = 3; }
+
+// ---- server -> agent ----
+message Command {
+  string command_id = 1;
+  uint64 issued_ms = 2;
+  bytes signature = 3;         // Ed25519 over (command_id || body)
+  oneof body {
+    FirewallPolicy firewall = 10;
+    AllowlistPolicy allowlist = 11;
+    Remediation remediation = 12;
+    FimWatchList fim = 13;
+    AgentUpdate update = 14;
+    IsolateHost isolate = 15;
+    CollectArtifacts collect = 16;
+  }
+}
+
+message FirewallPolicy {
+  string policy_id = 1; uint32 version = 2;
+  enum Mode { SIMULATE = 0; ENFORCE = 1; }
+  Mode mode = 3;
+  repeated FirewallRule rules = 4;   // allow-list; implicit deny when enforced
+}
+message FirewallRule { string rule_id = 1; string direction = 2; string protocol = 3; repeated string remote_cidrs = 4; repeated uint32 ports = 5; string image = 6; bool allow = 7; }
+
+message AllowlistPolicy {
+  string policy_id = 1; uint32 version = 2;
+  enum Engine { WDAC = 0; APPLOCKER = 1; }
+  Engine engine = 3;
+  enum Mode { AUDIT = 0; ENFORCE = 1; }
+  Mode mode = 4;
+  bytes policy_xml = 5;        // generated by hv-policy
+}
+
+message Remediation { string script_id = 1; string title = 2; bytes powershell = 3; bool snapshot_first = 4; bytes rollback = 5; }
+message FimWatchList { repeated FimWatch watches = 1; }
+message FimWatch { string path = 1; bool recursive = 2; bool hash = 3; repeated string exclude_globs = 4; }
+message AgentUpdate { string version = 1; string sha256 = 2; bytes signature = 3; uint64 size = 4; string chunk_url = 5; }
+message IsolateHost { bool enable = 1; repeated string allow_cidrs = 2; }
+message CollectArtifacts { repeated string paths = 1; bool memory_dump_lsass = 2; bool prefetch = 3; bool amcache = 4; }
+
+message CommandResult { string command_id = 1; bool ok = 2; string message = 3; bytes output = 4; }
+
+message Config { uint32 heartbeat_s = 1; uint32 inventory_interval_s = 2; uint64 ring_buffer_bytes = 3; bool hash_image_loads = 4; repeated string etw_providers = 5; }
+
+// ---- enrolment ----
+message EnrolRequest { string token = 1; bytes csr_der = 2; Hello hello = 3; }
+message EnrolResponse { bytes cert_der = 1; bytes ca_der = 2; string host_id = 3; Config config = 4; }
+message RenewRequest { bytes csr_der = 1; }

@@ -1,0 +1,24 @@
+# C:\ProgramData\HostVigil\agent.toml
+server = "https://hostvigil.corp.local:8443"
+ca_fingerprint = ""            # SHA-256 of ca.pem, printed by hv-ca on first start
+command_pubkey = ""            # from `hv keygen`
+data_dir = 'C:\ProgramData\HostVigil'
+ring_buffer_bytes = 2147483648
+heartbeat_s = 30
+inventory_interval_s = 21600
+cpu_budget_pct = 2.0
+
+[modules]
+etw = true
+wfp = true
+fim = true
+inventory = true
+allowlist = true
+baseline = true
+remediate = true
+
+[[fim]]
+path = 'C:\Windows\System32\drivers\etc'
+[[fim]]
+path = 'C:\inetpub\wwwroot'
+exclude_globs = ["*.log"]

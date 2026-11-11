@@ -1,0 +1,63 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rules-and-data:
+    name: Rule packs, schemas, HUD
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install validators
+        run: pip install pyyaml yara-python playwright && playwright install --with-deps chromium
+      - name: Validate Sigma, YARA and CIS rule packs
+        run: python scripts/validate_rules.py
+      - name: Protobuf contract compiles
+        run: sudo apt-get install -y -qq protobuf-compiler && protoc --proto_path=proto --descriptor_set_out=/dev/null proto/hostvigil.proto
+      - name: SQL migrations parse
+        run: |
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+          for f in deploy/compose/postgres/migrations/*.sql; do psql --set ON_ERROR_STOP=1 -X -q -f "$f" "postgres://x@localhost/x" 2>&1 | grep -v "could not connect" | grep -iE "syntax error" && exit 1 || true; done
+      - name: HUD renders, data integrity guard passes, no overflow at 400px
+        run: python hud/test/check_hud.py
+      - name: HUD stays under the 16 MB artifact limit and single-file
+        run: |
+          test $(stat -c%s hud/standalone/hostvigil-hud.html) -lt 16000000
+          ! grep -oE 'src="https?://[^"]+"' hud/standalone/hostvigil-hud.html | grep -vE 'cdnjs.cloudflare.com' || (echo "non-allowlisted script host" && exit 1)
+      - name: Compose file is valid
+        run: docker compose -f deploy/compose/docker-compose.yml config -q
+        env: { HV_FEED_PUBKEY: "0000000000000000000000000000000000000000000000000000000000000000", HV_JWT_SECRET: x, HV_ADMIN_PASSWORD: x }
+
+  rust:
+    name: Rust workspace (fmt, clippy, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: "rustfmt, clippy", targets: "x86_64-pc-windows-msvc" }
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get install -y -qq protobuf-compiler
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy (server + shared)
+        run: cargo clippy -p hv-common -p hv-proto -p hv-ingest -p hv-api -p hv-analytics -p hv-ca -p hv-feeds -p hv-cli -p hostvigil-bundler -- -D warnings
+      - name: Unit tests (validation, signing, ring buffer, Sigma, FIM matching, baseline)
+        run: cargo test -p hv-common -p hv-ingest -p hv-api -p hv-analytics -p hv-feeds -p hostvigil-agent
+      - name: Agent cross-compiles for Windows
+        run: cargo check -p hostvigil-agent --target x86_64-pc-windows-msvc
+
+  supply-chain:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with: { token: "${{ secrets.GITHUB_TOKEN }}" }

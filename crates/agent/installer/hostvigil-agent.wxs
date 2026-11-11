@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- WiX v4. Build: wix build hostvigil-agent.wxs -d Version=0.1.0 -o hostvigil-agent.msi -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="HostVigil Agent" Manufacturer="HostVigil" Version="$(var.Version)" UpgradeCode="5F6E2D44-1B9C-4C7A-9C2E-0A1B2C3D4E5F" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer HostVigil Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="SERVER" Secure="yes" /><Property Id="TOKEN" Secure="yes" /><Property Id="CAFP" Secure="yes" />
+    <StandardDirectory Id="ProgramFiles64Folder"><Directory Id="INSTALLDIR" Name="HostVigil" /></StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder"><Directory Id="DATADIR" Name="HostVigil" /></StandardDirectory>
+    <ComponentGroup Id="Agent" Directory="INSTALLDIR">
+      <Component Id="AgentExe">
+        <File Id="AgentExe" Source="..\..\..\target\x86_64-pc-windows-msvc\release\hostvigil-agent.exe" KeyPath="yes" />
+        <ServiceInstall Id="Svc" Name="HostVigilAgent" DisplayName="HostVigil Agent" Description="Endpoint telemetry, FIM, allowlisting and microsegmentation" Start="auto" Type="ownProcess" ErrorControl="normal" Arguments="run" Vital="yes">
+          <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart" ThirdFailureActionType="restart" RestartServiceDelayInSeconds="10" ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="SvcCtl" Name="HostVigilAgent" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
+      <Component Id="Config" Directory="DATADIR" Guid="A3C1E0F2-7D55-4B0A-8E33-1F2E3D4C5B6A">
+        <File Id="ConfigToml" Source="agent.toml.example" Name="agent.toml" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+    <CustomAction Id="Enrol" Directory="INSTALLDIR" ExeCommand="&quot;[INSTALLDIR]hostvigil-agent.exe&quot; enrol --server [SERVER] --token [TOKEN] --ca-fingerprint [CAFP]" Execute="deferred" Impersonate="no" Return="check" />
+    <InstallExecuteSequence><Custom Action="Enrol" After="InstallFiles" Condition="NOT Installed AND TOKEN" /></InstallExecuteSequence>
+    <Feature Id="Main"><ComponentGroupRef Id="Agent" /></Feature>
+  </Package>
+</Wix>

@@ -1,0 +1,10 @@
+id: hv-0003
+title: Certutil download or decode
+level: high
+tags: [attack.command_and_control, attack.t1105]
+logsource: {category: process_creation, product: windows}
+detection:
+  selection:
+    Image|endswith: '\certutil.exe'
+    CommandLine|contains: ['urlcache', '-decode', '-split', 'http']
+  condition: selection
