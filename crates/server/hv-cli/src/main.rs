@@ -48,11 +48,11 @@ enum Cmd {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    match cli.cmd {
-        Cmd::Keygen { dir } => {
+    if let Cmd::Keygen { dir } = &cli.cmd {
+        {
             use ed25519_dalek::SigningKey;
             use rand_core::OsRng;
-            std::fs::create_dir_all(&dir)?;
+            std::fs::create_dir_all(dir)?;
             let sk = SigningKey::generate(&mut OsRng);
             std::fs::write(format!("{dir}/command.key"), hv_common::hex(&sk.to_bytes()))?;
             #[cfg(unix)]
@@ -69,7 +69,6 @@ async fn main() -> Result<()> {
             );
             return Ok(());
         }
-        _ => {}
     }
     let pg = PgPool::connect(&cli.pg).await?;
     match cli.cmd {
