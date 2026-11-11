@@ -4,9 +4,13 @@
 //! forwarded so the server can learn the golden image and propose a policy.
 //! Enforcement applies a server-signed policy XML through CiTool.
 
-use crate::{config::AgentConfig, modules::health::ALLOWLIST, supervisor::EventTx};
+#[cfg(windows)]
+use crate::modules::health::ALLOWLIST;
+use crate::{config::AgentConfig, supervisor::EventTx};
 use anyhow::Result;
-use hv_proto::{allowlist_event::Verdict, event::Body, AllowlistEvent, AllowlistPolicy};
+use hv_proto::AllowlistPolicy;
+#[cfg(windows)]
+use hv_proto::{allowlist_event::Verdict, event::Body, AllowlistEvent};
 use std::sync::Arc;
 
 pub async fn run(_cfg: Arc<AgentConfig>, tx: EventTx) -> Result<()> {

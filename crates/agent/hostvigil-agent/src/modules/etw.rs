@@ -3,8 +3,11 @@
 //! no driver is needed. Hashing and Authenticode checks run on a worker pool
 //! so the ETW callback never blocks.
 
-use crate::{config::AgentConfig, modules::health::ETW, supervisor::EventTx};
+#[cfg(windows)]
+use crate::modules::health::ETW;
+use crate::{config::AgentConfig, supervisor::EventTx};
 use anyhow::Result;
+#[cfg(windows)]
 use hv_proto::event::Body;
 use std::sync::Arc;
 

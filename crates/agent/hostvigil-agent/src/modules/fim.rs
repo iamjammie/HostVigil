@@ -7,13 +7,16 @@
 //! the owning process is attributed from the ETW process table when the
 //! change is within 2 s of a matching FileIO event.
 
+#[cfg(windows)]
+use crate::modules::health::FIM;
 use crate::{
     config::{AgentConfig, FimWatch},
-    modules::health::FIM,
     supervisor::EventTx,
 };
 use anyhow::Result;
-use hv_proto::{event::Body, file_change::Kind, FileChange};
+use hv_proto::file_change::Kind;
+#[cfg(windows)]
+use hv_proto::{event::Body, FileChange};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
