@@ -1,0 +1,12 @@
+# cargo-audit policy. Every ignore carries a reason and an owner action.
+[advisories]
+ignore = [
+  # rsa / crypto-bigint are transitive via sqlx (MySQL auth path); HostVigil uses PostgreSQL only,
+  # the vulnerable code is never reached. Re-check when sqlx 0.9 lands.
+  "RUSTSEC-2023-0071",
+  "RUSTSEC-2026-0387",
+  # libsqlite3-sys (bundled SQLite) is used only for the agent's local ring buffer, which is
+  # written and read by the agent process alone; no untrusted SQL reaches it. Bump rusqlite when
+  # a release with libsqlite3-sys >= 0.39 is available.
+  "RUSTSEC-2026-0459",
+]

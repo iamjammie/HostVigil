@@ -50,7 +50,6 @@ jsonwebtoken = "9"
 argon2 = "0.5"
 rust-embed = "8"
 petgraph = "0.6"
-yara-x = "0.10"
 linfa = "0.7"
 flume = "0.11"
 clap = { version = "4", features = ["derive"] }
