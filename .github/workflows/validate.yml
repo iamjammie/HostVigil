@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with: { components: "rustfmt, clippy", targets: "x86_64-pc-windows-msvc" }
+        with: { components: "rustfmt, clippy", targets: "x86_64-pc-windows-gnu" }
       - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get install -y -qq protobuf-compiler
       - name: Format
@@ -51,8 +51,14 @@ jobs:
         run: cargo clippy -p hv-common -p hv-proto -p hv-ingest -p hv-api -p hv-analytics -p hv-ca -p hv-feeds -p hv-cli -p hostvigil-bundler -- -D warnings
       - name: Unit tests (validation, signing, ring buffer, Sigma, FIM matching, baseline)
         run: cargo test -p hv-common -p hv-ingest -p hv-api -p hv-analytics -p hv-feeds -p hostvigil-agent
-      - name: Agent cross-compiles for Windows
-        run: cargo check -p hostvigil-agent --target x86_64-pc-windows-msvc
+      - name: Agent cross-compiles for Windows (gnu target; MSVC release is built on a Windows runner)
+        run: |
+          sudo apt-get install -y -qq gcc-mingw-w64-x86-64
+          cargo check -p hostvigil-agent --target x86_64-pc-windows-gnu
+        env:
+          CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc
+          AR_x86_64_pc_windows_gnu: x86_64-w64-mingw32-ar
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
 
   supply-chain:
     name: Dependency audit
