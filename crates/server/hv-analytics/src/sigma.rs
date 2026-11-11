@@ -185,7 +185,9 @@ pub async fn evaluate_recent(ctx: Ctx, rules: Arc<Vec<Rule>>) -> Result<()> {
         .map(|(k, v)| (k.to_string(), v))
         .collect();
         for r in rules.iter().filter(|r| {
-            r.logsource.category.is_empty() || category_matches(&r.logsource.category, &kind)
+            (r.logsource.product.is_empty() || r.logsource.product == "windows")
+                && (r.logsource.category.is_empty()
+                    || category_matches(&r.logsource.category, &kind))
         }) {
             if matches(r, &ev) {
                 n += 1;
